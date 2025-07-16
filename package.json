@@ -21,11 +21,14 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@chroma-core/default-embed": "^0.1.8",
     "@langchain/community": "^0.3.49",
     "@langchain/core": "^0.3.63",
     "@langchain/langgraph": "^0.2.59",
+    "@langchain/langgraph-checkpoint-sqlite": "^0.1.5",
     "@langchain/openai": "^0.6.1",
     "cheerio": "^1.0.0",
+    "chromadb": "^3.0.9",
     "dotenv": "^16.4.7",
     "langchain": "^0.3.30",
     "zod": "^4.0.5"

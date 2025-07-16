@@ -1,46 +1,81 @@
-# RAG LangChain Application with OpenRouter
+# RAG ChatBot with Chat History
 
-A minimal yet expandable Retrieval Augmented Generation (RAG) application built with LangChain and OpenRouter integration.
+A conversational RAG (Retrieval Augmented Generation) system that remembers your conversation history and provides contextual answers from documents.
 
-## 🚀 Features
+## 🎯 What It Does
 
-- **OpenRouter Integration**: Custom wrappers for both LLM and embedding models
-- **Modular Architecture**: Clean separation of concerns for easy expansion
-- **Document Processing**: Web document loading, chunking, and embedding
-- **Vector Search**: In-memory vector store with similarity search
-- **Streaming Support**: Real-time answer generation
-- **Error Handling**: Comprehensive error handling with helpful hints
-- **Performance Monitoring**: Built-in timing and logging
+Transform any document into an intelligent chatbot that:
+- **Remembers conversations**: Maintains context across multiple questions
+- **Answers from documents**: Retrieves relevant information to answer your questions
+- **Interactive chat**: Real-time conversation with command support
+- **Persistent storage**: Saves chat history using Chroma vector database
 
-## 📋 Prerequisites
+## 🚀 Quick Start
 
-- Node.js 18+ 
-- pnpm (recommended) or npm
-- OpenRouter API key
-
-## 🛠️ Setup
-
-1. **Clone and install dependencies**:
+1. **Install dependencies**:
 ```bash
 pnpm install
 ```
 
-2. **Configure environment**:
+2. **Set up environment**:
 ```bash
 cp env.example .env
 ```
 
-3. **Add your OpenRouter API key** to `.env`:
+3. **Add your API keys** to `.env`:
 ```env
-OPENROUTER_API_KEY=your_actual_api_key_here
+OPENROUTER_API_KEY=your_openrouter_key_here
+OPENAI_API_KEY=your_openai_key_here
 ```
 
-4. **Run the application**:
+4. **Start chatting**:
 ```bash
+# Interactive chat mode
+pnpm start --interactive
+
+# Sample questions mode
 pnpm start
-# or
-node index.js
+
+# Streaming answers
+pnpm start --streaming
 ```
+
+## 💬 Usage Examples
+
+### Interactive Chat
+```bash
+$ pnpm start --interactive
+
+💬 You: What is task decomposition?
+🤖 Assistant: Task decomposition is the process of breaking down complex tasks into smaller, manageable steps...
+
+💬 You: Can you give me an example?
+🤖 Assistant: Based on our previous discussion about task decomposition, here's an example...
+```
+
+### Available Commands
+- `/help` - Show available commands
+- `/reset` - Start a new conversation
+- `/history` - View conversation history
+- `/threads` - Show all conversation threads
+- `/switch <thread_id>` - Switch to different conversation
+- `/summary` - Generate conversation summary
+- `/exit` - Exit the chat
+
+## 🏗️ Architecture
+
+The system uses a **conversational StateGraph** approach:
+
+```
+User Input → Query Reformulation → Document Retrieval → 
+Contextual Response → Chat History Storage
+```
+
+**Key Components:**
+- **Chroma Vector Database**: Stores documents and embeddings
+- **LangGraph StateGraph**: Manages conversation flow
+- **Chat History Manager**: Handles conversation persistence
+- **OpenRouter Integration**: LLM and embedding models
 
 ## 📁 Project Structure
 
@@ -48,161 +83,128 @@ node index.js
 rag-langchain/
 ├── src/
 │   ├── wrappers/
-│   │   ├── chat-openrouter.js      # OpenRouter LLM wrapper
-│   │   └── embeddings-openrouter.js # OpenRouter embeddings wrapper
-│   ├── utils/
-│   │   └── helpers.js              # Utility functions
-│   ├── config.js                   # Configuration constants
-│   └── rag.js                      # Main RAG system class
+│   │   ├── chroma-wrapper.js       # Chroma database wrapper
+│   │   └── embeddings-openai.js    # OpenAI embeddings wrapper
+│   ├── chat-history.js             # Conversation management
+│   ├── interactive-chat.js         # CLI chat interface
+│   ├── rag.js                      # Main RAG system
+│   └── config.js                   # Configuration
 ├── index.js                        # Entry point
-├── env.example                     # Environment template
-├── package.json
 └── README.md
-```
-
-## 🎯 Usage
-
-### Basic Usage
-
-The application loads a document (by default, a blog post about AI agents), processes it into chunks, creates embeddings, and answers questions about the content.
-
-```javascript
-import { RAGSystem } from './src/rag.js';
-
-const rag = new RAGSystem();
-await rag.initialize();
-await rag.buildIndex(); // Uses default document
-const answer = await rag.generateAnswer("What is task decomposition?");
-```
-
-### Custom Document
-
-```javascript
-await rag.buildIndex('https://your-document-url.com');
-```
-
-### Streaming Answers
-
-```javascript
-for await (const chunk of rag.generateAnswerStream(question)) {
-  process.stdout.write(chunk);
-}
 ```
 
 ## ⚙️ Configuration
 
-Modify `src/config.js` to customize:
+Edit `src/config.js` to customize:
 
 - **Models**: Change LLM and embedding models
-- **Chunk Settings**: Adjust text splitting parameters
-- **Retrieval**: Configure search parameters
-- **Prompts**: Customize system prompts (Korean/English)
+- **Chroma Settings**: Database configuration
+- **Chat History**: Conversation persistence options
+- **Prompts**: System prompts in Korean/English
 
-## 🔧 Expansion Ideas
+## 🔧 Use Cases
 
-### 1. Persistent Vector Store
-Replace `MemoryVectorStore` with Pinecone, Weaviate, or Chroma:
+### 1. Document Q&A Chatbot
+- Load company documents, manuals, or knowledge bases
+- Create an interactive assistant that answers questions
+- Maintain conversation context for follow-up questions
 
+### 2. Customer Support Assistant
+- Upload FAQ documents and product manuals
+- Provide contextual customer support
+- Remember previous conversation for better assistance
+
+### 3. Research Assistant
+- Load research papers or articles
+- Ask complex questions with follow-ups
+- Generate summaries of long conversations
+
+### 4. Personal Knowledge Base
+- Store personal documents and notes
+- Create a conversational interface to your knowledge
+- Search and retrieve information naturally
+
+## 🎨 Customization Examples
+
+### Add New Document Loaders
 ```javascript
-// Install: pnpm add @langchain/pinecone
-import { PineconeStore } from "@langchain/pinecone";
+// Add PDF loader
+import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
+
+// Add to RAGSystem class
+async loadPDF(filePath) {
+  const loader = new PDFLoader(filePath);
+  return await loader.load();
+}
 ```
 
-### 2. Query Analysis
-Add structured query processing (from LangChain tutorial Part 2):
-
+### Custom Chat Commands
 ```javascript
-// Add to src/rag.js
-import { z } from "zod";
-const searchSchema = z.object({
-  query: z.string(),
-  section: z.enum(["beginning", "middle", "end"])
-});
+// Add to interactive-chat.js
+case '/export':
+  await this.exportConversation();
+  break;
 ```
 
-### 3. Chat History
-Implement conversational RAG with LangGraph:
-
-```javascript
-// Install: pnpm add @langchain/langgraph
-import { StateGraph } from "@langchain/langgraph";
+### Connect to External Chroma Server
+```env
+CHROMA_USE_LOCAL_DB=false
+CHROMA_HOST=your-chroma-server.com
+CHROMA_PORT=8000
 ```
 
-### 4. CLI Interface
-Add interactive command-line interface:
+## 🛠️ Models
 
-```javascript
-// Install: pnpm add inquirer
-import inquirer from 'inquirer';
-```
+**Default Models:**
+- **LLM**: `moonshotai/kimi-k2:free` (via OpenRouter)
+- **Embeddings**: `text-embedding-3-small` (via OpenAI)
 
-### 5. Web Interface
-Create a simple web UI:
-
-```javascript
-// Install: pnpm add express
-import express from 'express';
-```
-
-## 🛡️ Error Handling
-
-The application includes comprehensive error handling:
-
-- **Environment validation**: Checks for required API keys
-- **OpenRouter-specific errors**: Hints for authentication and rate limits
-- **Graceful degradation**: Continues processing other questions on individual failures
-- **Performance monitoring**: Tracks timing for each operation
-
-## 📊 Models
-
-### Default Models
-- **LLM**: `deepseek/deepseek-r1-distill-llama-70b`
-- **Embeddings**: `nomic-ai/nomic-embed-text-v1.5`
-
-### Changing Models
-Update `.env` or `src/config.js`:
-
+**Change Models:**
 ```env
 LLM_MODEL=anthropic/claude-3-haiku
-EMBEDDING_MODEL=openai/text-embedding-3-small
+EMBEDDING_MODEL=text-embedding-3-large
 ```
 
-## 🐛 Troubleshooting
+## 🐛 Common Issues
 
-### Common Issues
+**"Better SQLite3 bindings not found"**
+- Conversation persistence will fallback to memory storage
+- Install build tools: `pnpm add --dev node-gyp`
 
-1. **"Missing required environment variables"**
-   - Copy `env.example` to `.env` and add your API key
+**"Chroma client initialization failed"**
+- Using memory-based vector store as fallback
+- Works normally with in-memory storage
 
-2. **"401 Unauthorized"**
-   - Verify your OpenRouter API key is correct
-   - Check your OpenRouter account has sufficient credits
+**"API key issues"**
+- Ensure both OpenRouter and OpenAI keys are set
+- Check API key validity and credits
 
-3. **"Rate limit exceeded"**
-   - Wait and try again, or upgrade your OpenRouter plan
+## 📚 Advanced Features
 
-4. **Module import errors**
-   - Ensure you're using Node.js 18+ with ES modules support
+### Conversation Management
+- **Thread Support**: Multiple conversation threads
+- **Persistence**: SQLite-based chat history storage
+- **Context Awareness**: Query reformulation based on chat history
+- **Summarization**: Auto-generate conversation summaries
 
-## 📚 References
+### Vector Database
+- **Chroma Integration**: Production-ready vector storage
+- **Similarity Search**: Efficient document retrieval
+- **Embeddings**: High-quality text embeddings
+- **Fallback**: Memory storage for development
 
-- [LangChain RAG Tutorial](https://js.langchain.com/docs/tutorials/rag)
-- [OpenRouter API Documentation](https://openrouter.ai/docs)
-- [LangChain JavaScript Documentation](https://js.langchain.com/)
+## 🎉 Getting Started Tips
 
-## 📄 License
-
-ISC License - See package.json for details
-
-## 🤝 Contributing
-
-This is a minimal foundation designed for expansion. Feel free to:
-- Add new document loaders
-- Implement different vector stores
-- Create UI interfaces
-- Add more sophisticated query processing
-- Improve error handling and logging
+1. **Start with interactive mode** to experience the conversational flow
+2. **Try follow-up questions** to see context awareness in action
+3. **Use `/help`** to explore available commands
+4. **Experiment with different document URLs** in the config
+5. **Check conversation history** with `/history` command
 
 ---
 
-**Happy RAG building! 🚀** 
+**Ready to chat with your documents? 🚀**
+
+```bash
+pnpm start --interactive
+```
