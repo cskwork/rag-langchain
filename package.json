@@ -1,0 +1,37 @@
+{
+  "name": "rag-langchain",
+  "version": "1.0.0",
+  "description": "A RAG system using LangChain",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "rag",
+    "langchain",
+    "ai",
+    "chatbot",
+    "retrieval",
+    "augmented",
+    "generation"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@langchain/community": "^0.3.49",
+    "@langchain/core": "^0.3.63",
+    "@langchain/openai": "^0.6.1",
+    "cheerio": "^1.0.0",
+    "dotenv": "^16.4.7",
+    "langchain": "^0.3.30",
+    "zod": "^4.0.5"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.1",
+    "linkedom": "^0.18.11",
+    "puppeteer": "^24.13.0"
+  }
+}
