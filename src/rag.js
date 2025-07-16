@@ -1,8 +1,11 @@
 import { CheerioWebBaseLoader } from "@langchain/community/document_loaders/web/cheerio";
 import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
-import { MemoryVectorStore } from "langchain/vectorstores/memory";
 import { StateGraph, START, END } from "@langchain/langgraph";
+import { MessagesAnnotation } from "@langchain/langgraph";
+import { HumanMessage, AIMessage } from "@langchain/core/messages";
 import { EmbeddingsOpenAI } from './wrappers/embeddings-openai.js';
+import { chromaWrapper } from './wrappers/chroma-wrapper.js';
+import { chatHistoryManager } from './chat-history.js';
 import { CONFIG } from './config.js';
 
 /**
@@ -14,6 +17,9 @@ export class RAGSystem {
     this.vectorStore = null;
     this.embeddings = null;
     this.graph = null;
+    this.conversationalGraph = null;
+    this.chromaWrapper = chromaWrapper;
+    this.chatHistoryManager = chatHistoryManager;
   }
 
   /**
@@ -34,6 +40,14 @@ export class RAGSystem {
         modelName: CONFIG.OPENAI.EMBEDDING_MODEL,
         apiKey: CONFIG.OPENAI.API_KEY
       });
+
+      // 채팅 히스토리 체크포인터 초기화 (선택사항)
+      try {
+        await this.chatHistoryManager.initializeCheckpointer();
+      } catch (error) {
+        console.warn('⚠️ Checkpointer initialization failed, using in-memory storage only:', error.message);
+        // 체크포인터 없이 계속 진행
+      }
 
       console.log('✅ RAG system initialized successfully');
       
@@ -69,13 +83,19 @@ export class RAGSystem {
       const splitDocs = await textSplitter.splitDocuments(docs);
       console.log(`📝 Split into ${splitDocs.length} chunks`);
 
-      // 3. 벡터 스토어 생성 및 문서 저장
-      this.vectorStore = new MemoryVectorStore(this.embeddings);
-      await this.vectorStore.addDocuments(splitDocs);
-      console.log('💾 Documents embedded and stored in vector store');
+      // 3. Chroma 벡터 스토어 생성 및 문서 저장
+      console.log('🔗 Initializing Chroma vector store...');
+      this.vectorStore = await this.chromaWrapper.createVectorStore(
+        this.embeddings,
+        splitDocs
+      );
+      console.log('💾 Documents embedded and stored in Chroma vector store');
 
       // 4. StateGraph 워크플로우 생성
       this._createStateGraph();
+      
+      // 5. 대화형 StateGraph 생성 (Conversational StateGraph creation)
+      this._createConversationalStateGraph();
 
       return {
         documentsLoaded: docs.length,
@@ -175,6 +195,82 @@ Helpful Answer:`;
   }
 
   /**
+   * 대화형 StateGraph 워크플로우 생성 (MessagesAnnotation 사용)
+   * (Create conversational StateGraph workflow using MessagesAnnotation)
+   */
+  _createConversationalStateGraph() {
+    // MessagesAnnotation을 사용한 대화형 워크플로우 생성
+    const conversationalWorkflow = new StateGraph(MessagesAnnotation);
+
+    // 검색 노드 - 대화 맥락을 고려한 문서 검색
+    const retrieveNode = async (state) => {
+      const messages = state.messages || [];
+      const lastMessage = messages[messages.length - 1];
+      
+      if (!lastMessage || lastMessage._getType() !== 'human') {
+        throw new Error('No user message found');
+      }
+
+      const query = lastMessage.content;
+      console.log(`🔍 Retrieving with conversation context for: "${query}"`);
+      
+      // 대화 맥락을 고려한 검색 수행
+      const retrievalResult = await this.chatHistoryManager.retrieveWithContext(
+        query,
+        messages,
+        this.vectorStore
+      );
+      
+      console.log(`📚 Retrieved ${retrievalResult.documents.length} documents with context`);
+      
+      // 검색 결과를 상태에 저장
+      return {
+        messages: messages,
+        context: retrievalResult.context,
+        searchQuery: retrievalResult.searchQuery,
+        originalQuery: retrievalResult.originalQuery
+      };
+    };
+
+    // 응답 생성 노드 - 대화 기록을 포함한 응답 생성
+    const generateNode = async (state) => {
+      const messages = state.messages || [];
+      const context = state.context || '';
+      const query = state.originalQuery || state.searchQuery;
+      
+      console.log('🤖 Generating contextual response...');
+      
+      // 대화 맥락을 고려한 응답 생성
+      const response = await this.chatHistoryManager.generateContextualResponse(
+        query,
+        context,
+        messages
+      );
+      
+      // AI 응답 메시지 추가
+      const aiMessage = new AIMessage(response);
+      
+      return {
+        messages: [...messages, aiMessage]
+      };
+    };
+
+    // 노드 추가
+    conversationalWorkflow.addNode("retrieve", retrieveNode);
+    conversationalWorkflow.addNode("generate", generateNode);
+
+    // 엣지 추가
+    conversationalWorkflow.addEdge(START, "retrieve");
+    conversationalWorkflow.addEdge("retrieve", "generate");
+    conversationalWorkflow.addEdge("generate", END);
+
+    // 대화형 그래프 컴파일
+    this.conversationalGraph = conversationalWorkflow.compile();
+    
+    console.log('✅ Conversational StateGraph created successfully');
+  }
+
+  /**
    * 질문에 대한 답변 생성 (StateGraph 사용)
    * (Generate answer for question using StateGraph)
    */
@@ -196,6 +292,99 @@ Helpful Answer:`;
       
     } catch (error) {
       console.error('❌ Answer generation failed:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * 대화형 답변 생성 (MessagesAnnotation 사용)
+   * (Generate conversational answer using MessagesAnnotation)
+   */
+  async generateConversationalAnswer(messages, threadId = 'default') {
+    if (!this.conversationalGraph) {
+      throw new Error('Conversational StateGraph not initialized. Call buildIndex() first.');
+    }
+
+    try {
+      console.log(`\n🗣️  Conversational query processing...`);
+      
+      // 대화형 StateGraph 실행
+      const result = await this.conversationalGraph.invoke({
+        messages: messages
+      });
+      
+      const aiResponse = result.messages[result.messages.length - 1];
+      console.log(`\n💬 Conversational Answer: ${aiResponse.content}`);
+      
+      return {
+        answer: aiResponse.content,
+        messages: result.messages,
+        threadId: threadId
+      };
+      
+    } catch (error) {
+      console.error('❌ Conversational answer generation failed:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * 대화 시작 (새로운 대화 세션 시작)
+   * (Start conversation - begin new conversation session)
+   */
+  async startConversation(initialQuestion, threadId = 'default') {
+    try {
+      // 사용자 메시지 생성
+      const userMessage = new HumanMessage(initialQuestion);
+      const messages = [userMessage];
+      
+      // 대화형 답변 생성
+      const result = await this.generateConversationalAnswer(messages, threadId);
+      
+      // 대화 상태 저장 (체크포인터 사용)
+      const conversationState = {
+        messages: result.messages,
+        threadId: threadId,
+        timestamp: new Date().toISOString()
+      };
+      
+      await this.chatHistoryManager.saveConversationCheckpoint(threadId, conversationState);
+      
+      return result;
+    } catch (error) {
+      console.error('❌ Conversation start failed:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * 대화 계속 (기존 대화에 메시지 추가)
+   * (Continue conversation - add message to existing conversation)
+   */
+  async continueConversation(question, threadId = 'default') {
+    try {
+      // 기존 대화 상태 가져오기 (체크포인터 사용)
+      const conversationState = await this.chatHistoryManager.loadConversationCheckpoint(threadId);
+      
+      // 새로운 사용자 메시지 추가
+      const userMessage = new HumanMessage(question);
+      const messages = [...conversationState.messages, userMessage];
+      
+      // 대화형 답변 생성
+      const result = await this.generateConversationalAnswer(messages, threadId);
+      
+      // 대화 상태 업데이트 (체크포인터 사용)
+      const updatedConversationState = {
+        messages: result.messages,
+        threadId: threadId,
+        timestamp: new Date().toISOString()
+      };
+      
+      await this.chatHistoryManager.saveConversationCheckpoint(threadId, updatedConversationState);
+      
+      return result;
+    } catch (error) {
+      console.error('❌ Conversation continuation failed:', error.message);
       throw error;
     }
   }
@@ -306,8 +495,118 @@ Helpful Answer:`;
       hasEmbeddings: !!this.embeddings,
       hasVectorStore: !!this.vectorStore,
       hasGraph: !!this.graph,
+      hasConversationalGraph: !!this.conversationalGraph,
       model: CONFIG.OPENROUTER.LLM_MODEL,
-      embeddingModel: CONFIG.OPENAI.EMBEDDING_MODEL
+      embeddingModel: CONFIG.OPENAI.EMBEDDING_MODEL,
+      chromaStatus: this.chromaWrapper.isInitialized(),
+      chatHistoryStatus: {
+        hasCheckpointer: !!this.chatHistoryManager.checkpointer,
+        conversationCount: this.chatHistoryManager.conversationState.size
+      }
     };
+  }
+
+  /**
+   * Chroma 컬렉션 정보 가져오기
+   * (Get Chroma collection info)
+   */
+  async getCollectionInfo() {
+    return await this.chromaWrapper.getCollectionInfo();
+  }
+
+  /**
+   * Chroma 컬렉션 삭제
+   * (Delete Chroma collection)
+   */
+  async deleteCollection() {
+    await this.chromaWrapper.deleteCollection();
+    this.vectorStore = null;
+  }
+
+  /**
+   * 시스템 리소스 정리
+   * (Clean up system resources)
+   */
+  async cleanup() {
+    try {
+      console.log('🧹 Cleaning up RAG system resources...');
+      
+      // Chat history manager 정리
+      await this.chatHistoryManager.cleanup();
+      
+      // Chroma 리소스 정리
+      await this.chromaWrapper.cleanup();
+      
+      // 인스턴스 변수 정리
+      this.vectorStore = null;
+      this.embeddings = null;
+      this.graph = null;
+      this.conversationalGraph = null;
+      
+      console.log('✅ RAG system cleanup completed');
+    } catch (error) {
+      console.error('❌ RAG system cleanup failed:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * 대화 초기화
+   * (Reset conversation)
+   */
+  async resetConversation(threadId = 'default') {
+    try {
+      await this.chatHistoryManager.deleteConversationCheckpoint(threadId);
+      console.log(`🔄 Conversation reset for thread: ${threadId}`);
+      return true;
+    } catch (error) {
+      console.error('❌ Conversation reset failed:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * 대화 기록 가져오기
+   * (Get conversation history)
+   */
+  async getConversationHistory(threadId = 'default') {
+    return await this.chatHistoryManager.loadConversationCheckpoint(threadId);
+  }
+
+  /**
+   * 모든 대화 목록 가져오기
+   * (Get all conversation threads)
+   */
+  async getAllConversationThreads() {
+    try {
+      const checkpoints = await this.chatHistoryManager.getAllConversationCheckpoints();
+      return checkpoints.map(cp => ({
+        threadId: cp.threadId,
+        messageCount: cp.messageCount,
+        timestamp: cp.timestamp,
+        lastMessage: cp.messageCount > 0 ? `${cp.messageCount} messages` : 'No messages'
+      }));
+    } catch (error) {
+      console.error('❌ Failed to get conversation threads:', error.message);
+      // 폴백: 메모리에서 가져오기
+      const threads = [];
+      for (const [threadId, state] of this.chatHistoryManager.conversationState.entries()) {
+        threads.push({
+          threadId,
+          messageCount: state.messages.length,
+          lastMessage: state.messages[state.messages.length - 1]?.content || 'No messages'
+        });
+      }
+      return threads;
+    }
+  }
+
+  /**
+   * 대화 요약 생성
+   * (Generate conversation summary)
+   */
+  async summarizeConversation(threadId = 'default') {
+    const conversationState = this.chatHistoryManager.getConversationHistory(threadId);
+    return await this.chatHistoryManager.summarizeConversation(conversationState.messages);
   }
 }

@@ -90,6 +90,19 @@ export const CONFIG = {
   // 기본 문서 URL (Default document URL for testing)
   DEFAULT_DOCUMENT_URL: 'https://lilianweng.github.io/posts/2023-06-23-agent/',
 
+  // Chroma 벡터 데이터베이스 설정 (Chroma vector database configuration)
+  CHROMA: {
+    COLLECTION_NAME: process.env.CHROMA_COLLECTION_NAME || 'rag_documents',
+    PERSIST_DIRECTORY: process.env.CHROMA_PERSIST_DIR || './chroma_db',
+    HOST: process.env.CHROMA_HOST || 'localhost',
+    PORT: parseInt(process.env.CHROMA_PORT) || 8000,
+    SSL: process.env.CHROMA_SSL === 'true',
+    TENANT: process.env.CHROMA_TENANT || 'default_tenant',
+    DATABASE: process.env.CHROMA_DATABASE || 'default_database',
+    // 로컬 파일 시스템 사용 여부 (Whether to use local file system)
+    USE_LOCAL_DB: process.env.CHROMA_USE_LOCAL_DB !== 'false'
+  },
+
   // 프롬프트 템플릿 (Prompt templates)
   PROMPTS: {
     RAG_SYSTEM: `다음 컨텍스트를 사용하여 질문에 답하세요.
