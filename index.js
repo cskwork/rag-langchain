@@ -14,7 +14,6 @@ let ragSystem = null;
 const cleanup = async () => {
   if (ragSystem) {
     console.log('\n🛑 Shutting down gracefully...');
-    await ragSystem.cleanup();
     ragSystem = null;
   }
   process.exit(0);
@@ -51,10 +50,9 @@ async function main() {
     // 상태 확인 (Check status)
     const status = ragSystem.getStatus();
     console.log('\n📊 System Status:');
-    console.log(`   - Initialized: ${status.initialized}`);
+    console.log(`   - Has Embeddings: ${status.hasEmbeddings}`);
     console.log(`   - LLM Model: ${status.model}`);
     console.log(`   - Embedding Model: ${status.embeddingModel}`);
-    console.log(`   - Memory Usage: ${status.memoryUsage.heapUsed}MB`);
     
     // 문서 인덱싱 (Build index)
     console.log('\n📚 Building document index...');
@@ -81,14 +79,23 @@ async function main() {
       console.log(`\n[${i + 1}/${sampleQuestions.length}]`);
       
       try {
-        // 일반 답변 생성 (Regular answer generation)
-        await ragSystem.generateAnswer(question);
+        // 일반 답변 생성 (Regular answer generation) - 주석 처리
+        // await ragSystem.generateAnswer(question);
         
-        // 스트리밍 답변 테스트 (선택사항)
-        // console.log('\n🌊 Streaming version:');
-        // for await (const chunk of ragSystem.generateAnswerStream(question)) {
-        //   // 스트리밍 청크 처리 (Process streaming chunks)
-        // }
+        // 스트리밍 답변 활성화 (Streaming answer generation)
+        console.log(`\n❓ Question: ${question}`);
+        console.log('🌊 Streaming answer:');
+        console.log('-'.repeat(50));
+        
+        let answerText = '';
+        for await (const chunk of ragSystem.generateAnswerStream(question)) {
+          // 스트리밍 청크를 실시간으로 출력 (Real-time streaming chunk output)
+          process.stdout.write(chunk);
+          answerText += chunk;
+        }
+        
+        console.log('\n' + '-'.repeat(50));
+        console.log('✅ Answer completed');
         
       } catch (error) {
         handleError(error, `question ${i + 1}`);
@@ -106,9 +113,9 @@ async function main() {
     // 최종 시스템 상태 출력
     const finalStatus = ragSystem.getStatus();
     console.log('\n📊 Final System Status:');
-    console.log(`   - Cache Size: ${finalStatus.cacheSize}`);
-    console.log(`   - Memory Usage: ${finalStatus.memoryUsage.heapUsed}MB`);
-    console.log(`   - Last Cleanup: ${finalStatus.lastCleanup}`);
+    console.log(`   - Has Vector Store: ${finalStatus.hasVectorStore}`);
+    console.log(`   - Has Graph: ${finalStatus.hasGraph}`);
+    console.log(`   - Model: ${finalStatus.model}`);
     
     // 추가 대화형 모드 (Interactive mode hint)
     console.log('\n💡 To run in interactive mode, you can extend this script');
@@ -119,7 +126,9 @@ async function main() {
     process.exit(1);
   } finally {
     // 정리 작업 수행
-    await cleanup();
+    if (ragSystem) {
+      ragSystem = null;
+    }
   }
 }
 
