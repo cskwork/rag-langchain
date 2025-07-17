@@ -1,0 +1,17 @@
+인공지능과 머신러닝
+
+인공지능(AI)은 컴퓨터가 인간의 지능을 모방하여 학습하고 문제를 해결하는 기술입니다.
+머신러닝은 인공지능의 하위 분야로, 데이터를 통해 패턴을 학습하고 예측하는 알고리즘을 다룹니다.
+
+주요 머신러닝 알고리즘:
+1. 선형 회귀 (Linear Regression)
+2. 결정 트리 (Decision Tree)
+3. 랜덤 포레스트 (Random Forest)
+4. 신경망 (Neural Networks)
+5. 서포트 벡터 머신 (SVM)
+
+딥러닝은 인공 신경망을 여러 층으로 쌓아 복잡한 패턴을 학습하는 기법입니다.
+CNN(Convolutional Neural Network)은 이미지 처리에, RNN(Recurrent Neural Network)은 시계열 데이터 처리에 주로 사용됩니다.
+
+자연어처리(NLP) 분야에서는 트랜스포머(Transformer) 구조가 혁신을 가져왔으며,
+BERT, GPT 같은 대규모 언어 모델들이 텍스트 이해와 생성에서 뛰어난 성능을 보여주고 있습니다.
