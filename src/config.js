@@ -124,5 +124,93 @@ Context: {context}
 Question: {question}
 
 Helpful Answer:`
+  },
+
+  // 도구 시스템 설정 (Tool System Configuration)
+  TOOLS: {
+    // 도구 사용 활성화/비활성화 (Enable/disable tool usage)
+    ENABLED: process.env.ENABLE_TOOLS !== 'false', // 기본값: true, 'false'로 설정시 비활성화
+    
+    // 도구 실행 설정
+    EXECUTION: {
+      MAX_CONCURRENT_TOOLS: 3, // 최대 동시 실행 도구 수
+      DEFAULT_TIMEOUT: 30000, // 기본 타임아웃 (30초)
+      MAX_RETRIES: 3, // 최대 재시도 횟수
+      EXECUTION_HISTORY_SIZE: 100 // 실행 기록 최대 크기
+    },
+    
+    // 도구 결정 설정
+    DECISION: {
+      TEMPERATURE: 0.1, // 도구 필요성 판단 시 낮은 온도
+      MAX_TOKENS: 100, // 도구 결정 응답 최대 토큰
+      THRESHOLD_CONFIDENCE: 0.7 // 도구 사용 신뢰도 임계값
+    },
+    
+    // 지원되는 도구 카테고리
+    CATEGORIES: {
+      MATH: 'math', // 수학 계산
+      UTILITY: 'utility', // 유틸리티 (날짜/시간 등)
+      SEARCH: 'search', // 검색 (향후 확장)
+      API: 'api', // API 호출 (향후 확장)
+      GENERAL: 'general' // 일반
+    },
+    
+    // 도구 패턴 설정
+    PATTERNS: {
+      // 도구 호출 패턴들
+      TOOL_CALL_PATTERNS: [
+        '\\[TOOL:([^:]+):(\\{[^}]*\\})\\]', // [TOOL:name:{params}]
+        '<tool\\s+name="([^"]+)"\\s+params="([^"]+)"\\s*\\/>', // <tool name="name" params="params" />
+        'USE_TOOL\\(([^,]+),\\s*(\\{[^}]*\\})\\)' // USE_TOOL(name, {params})
+      ]
+    },
+    
+    // 내장 도구 설정
+    BUILT_IN: {
+      CALCULATOR: {
+        enabled: true,
+        timeout: 5000,
+        maxRetries: 2,
+        precision: 6
+      },
+      DATETIME: {
+        enabled: true,
+        timeout: 3000,
+        maxRetries: 2,
+        defaultTimezone: 'Asia/Seoul',
+        defaultLocale: 'ko-KR'
+      }
+    },
+    
+    // 도구 보안 설정
+    SECURITY: {
+      // 허용된 함수 목록 (계산기)
+      ALLOWED_MATH_FUNCTIONS: [
+        'abs', 'acos', 'asin', 'atan', 'atan2', 'ceil', 'cos', 'exp',
+        'floor', 'log', 'max', 'min', 'pow', 'random', 'round',
+        'sin', 'sqrt', 'tan', 'PI', 'E'
+      ],
+      
+      // 금지된 패턴
+      FORBIDDEN_PATTERNS: [
+        'eval', 'function', 'while', 'for', 'if', 'else', 'var', 'let', 'const',
+        'class', 'import', 'export', 'require', 'document', 'window', 'global',
+        'process', 'console'
+      ],
+      
+      // 최대 입력 길이
+      MAX_INPUT_LENGTH: 1000,
+      
+      // 샌드박스 모드 활성화
+      SANDBOX_MODE: true
+    },
+    
+    // 도구 로깅 설정
+    LOGGING: {
+      LOG_EXECUTIONS: true, // 도구 실행 로깅
+      LOG_ERRORS: true, // 오류 로깅
+      LOG_PERFORMANCE: true, // 성능 로깅
+      LOG_LEVEL: 'info' // 로그 레벨
+    }
   }
 }; 

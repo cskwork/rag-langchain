@@ -82,6 +82,7 @@ async function main() {
     console.log(`   - LLM Model: ${status.model}`);
     console.log(`   - Embedding Model: ${status.embeddingModel}`);
     console.log(`   - Has Conversational Graph: ${status.hasConversationalGraph}`);
+    console.log(`   - Tools Enabled: ${CONFIG.TOOLS.ENABLED}`);
     
     // 문서 인덱싱 (Build index)
     console.log('\n📚 Building document index...');
@@ -124,8 +125,18 @@ async function main() {
           console.log('\n' + '-'.repeat(50));
           console.log('✅ Answer completed');
         } else {
-          // 일반 답변 생성 (Regular answer generation)
-          await ragSystem.generateAnswer(question);
+          // 도구 활성화 여부에 따른 답변 생성 (Answer generation based on tool enablement)
+          if (CONFIG.TOOLS.ENABLED) {
+            const result = await ragSystem.generateAnswerWithTools(question);
+            console.log(`\n❓ Question: ${question}`);
+            console.log(`\n🤖 Answer: ${result.answer}`);
+            if (result.usedTools && result.toolResults.length > 0) {
+              console.log(`\n🔧 Tools used: ${result.toolResults.length} tool(s)`);
+            }
+          } else {
+            // 일반 답변 생성 (Regular answer generation)
+            await ragSystem.generateAnswer(question);
+          }
         }
         
       } catch (error) {
