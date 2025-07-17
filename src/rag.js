@@ -87,6 +87,15 @@ export class RAGSystem {
       const loader = new CheerioWebBaseLoader(documentUrl);
       const docs = await loader.load();
       console.log(`📄 Loaded ${docs.length} document(s)`);
+      
+      // 디버그: 로드된 문서 상세 정보 표시
+      docs.forEach((doc, index) => {
+        console.log(`📋 Document ${index + 1}:`);
+        console.log(`   URL: ${documentUrl}`);
+        console.log(`   Content length: ${doc.pageContent.length} characters`);
+        console.log(`   Title: ${doc.metadata?.title || 'N/A'}`);
+        console.log(`   First 200 chars: ${doc.pageContent.substring(0, 200)}...`);
+      });
 
       // 2. 텍스트 분할
       const textSplitter = new RecursiveCharacterTextSplitter({
@@ -96,6 +105,16 @@ export class RAGSystem {
       });
       const splitDocs = await textSplitter.splitDocuments(docs);
       console.log(`📝 Split into ${splitDocs.length} chunks`);
+      
+      // 디버그: 청크 상세 정보 표시
+      console.log(`📊 Chunk details:`);
+      console.log(`   Chunk size setting: ${CONFIG.TEXT_SPLITTER.CHUNK_SIZE} characters`);
+      console.log(`   Chunk overlap: ${CONFIG.TEXT_SPLITTER.CHUNK_OVERLAP} characters`);
+      console.log(`   Average chunk length: ${Math.round(splitDocs.reduce((sum, doc) => sum + doc.pageContent.length, 0) / splitDocs.length)} characters`);
+      console.log(`   Chunks preview (first 3):`);
+      splitDocs.slice(0, 3).forEach((chunk, index) => {
+        console.log(`     Chunk ${index + 1}: ${chunk.pageContent.substring(0, 100)}...`);
+      });
 
       // 3. Chroma 벡터 스토어 생성 및 문서 저장
       console.log('🔗 Initializing Chroma vector store...');

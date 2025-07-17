@@ -47,9 +47,26 @@ export class InteractiveChatInterface {
       this.ragSystem = new RAGSystem();
       await this.ragSystem.initialize();
       
-      // 문서 인덱싱
+      // 문서 인덱싱 - 다중 소스에서 로딩 (Multi-source loading)
       console.log('📚 Building document index...');
-      await this.ragSystem.buildIndex();
+      console.log('📄 Loading documents...');
+      
+      // input 폴더에서 모든 문서 로딩
+      const indexResult = await this.ragSystem.buildIndexFromSources({
+        includeLocalFiles: true,
+        includeUrls: true,
+        localFilesPath: './input/documents',
+        urlsFilePath: './input/urls.txt'
+      });
+      
+      // 로딩 결과 표시
+      console.log(`📊 Document loading summary:`);
+      console.log(`   📄 Total documents loaded: ${indexResult.documentsLoaded}`);
+      console.log(`   📝 Total chunks created: ${indexResult.chunksCreated}`);
+      console.log(`   🔄 Unique chunks: ${indexResult.uniqueChunks}`);
+      console.log(`   📁 Local files: ${indexResult.sources.localFiles}`);
+      console.log(`   🌐 URLs: ${indexResult.sources.urls}`);
+      console.log(`   ✅ Success rate: ${indexResult.sources.successRate}%`);
       
       // readline 인터페이스 생성
       this.rl = readline.createInterface({
