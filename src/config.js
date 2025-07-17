@@ -126,6 +126,64 @@ Question: {question}
 Helpful Answer:`
   },
 
+  // 문서 소스 설정 (Document Sources Configuration)
+  DOCUMENT_SOURCES: {
+    // 기본 경로 설정 (Default paths)
+    LOCAL_FILES_PATH: process.env.LOCAL_FILES_PATH || './input/documents',
+    URLS_FILE_PATH: process.env.URLS_FILE_PATH || './input/urls.txt',
+    
+    // 지원되는 파일 확장자 (Supported file extensions)
+    SUPPORTED_EXTENSIONS: ['.txt', '.md'],
+    
+    // 파일 필터링 설정 (File filtering settings)
+    IGNORE_PATTERNS: [
+      '.*',           // 숨김 파일
+      '*.tmp',        // 임시 파일
+      '*.bak',        // 백업 파일
+      'node_modules', // Node.js 모듈
+      '*.log'         // 로그 파일
+    ],
+    
+    // 배치 처리 설정 (Batch processing settings)
+    BATCH_PROCESSING: {
+      MAX_CONCURRENT_LOADS: parseInt(process.env.MAX_CONCURRENT_LOADS) || 5,
+      RETRY_ATTEMPTS: parseInt(process.env.RETRY_ATTEMPTS) || 3,
+      RETRY_DELAY: parseInt(process.env.RETRY_DELAY) || 1000, // 1초
+      BACKOFF_MULTIPLIER: 2
+    },
+    
+    // 파일 크기 제한 (File size limits)
+    LIMITS: {
+      MAX_FILE_SIZE_MB: parseInt(process.env.MAX_FILE_SIZE_MB) || 10,
+      MAX_URL_RESPONSE_SIZE_MB: parseInt(process.env.MAX_URL_RESPONSE_SIZE_MB) || 20,
+      MAX_TOTAL_DOCUMENTS: parseInt(process.env.MAX_TOTAL_DOCUMENTS) || 1000
+    },
+    
+    // URL 처리 설정 (URL processing settings)
+    URL_PROCESSING: {
+      TIMEOUT: parseInt(process.env.URL_TIMEOUT) || 30000, // 30초
+      USER_AGENT: process.env.USER_AGENT || 'RAG-System/1.0',
+      FOLLOW_REDIRECTS: process.env.FOLLOW_REDIRECTS !== 'false',
+      MAX_REDIRECTS: parseInt(process.env.MAX_REDIRECTS) || 3
+    },
+    
+    // 캐싱 설정 (Caching settings)
+    CACHING: {
+      ENABLED: process.env.ENABLE_DOCUMENT_CACHE !== 'false',
+      CACHE_DIR: process.env.CACHE_DIR || './cache/documents',
+      CACHE_TTL: parseInt(process.env.CACHE_TTL) || 3600000, // 1시간
+      MAX_CACHE_SIZE_MB: parseInt(process.env.MAX_CACHE_SIZE_MB) || 100
+    },
+    
+    // 로깅 설정 (Logging settings)
+    LOGGING: {
+      LOG_LOAD_PROGRESS: process.env.LOG_LOAD_PROGRESS !== 'false',
+      LOG_FAILED_LOADS: process.env.LOG_FAILED_LOADS !== 'false',
+      LOG_PERFORMANCE: process.env.LOG_PERFORMANCE !== 'false',
+      VERBOSE: process.env.VERBOSE_DOCUMENT_LOADING === 'true'
+    }
+  },
+
   // 도구 시스템 설정 (Tool System Configuration)
   TOOLS: {
     // 도구 사용 활성화/비활성화 (Enable/disable tool usage)

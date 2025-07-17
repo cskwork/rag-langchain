@@ -9,6 +9,7 @@ import { chatHistoryManager } from './chat-history.js';
 import { CONFIG } from './config.js';
 import { toolRegistry, ToolRegistryUtils } from './tools/tool-registry.js';
 import { toolExecutor } from './tools/tool-executor.js';
+import { DocumentManager } from './document-manager.js';
 
 /**
  * RAG 시스템 클래스 - StateGraph 사용
@@ -25,6 +26,14 @@ export class RAGSystem {
     this.chatHistoryManager = chatHistoryManager;
     this.toolRegistry = toolRegistry;
     this.toolExecutor = toolExecutor;
+    this.documentManager = new DocumentManager({
+      localFilesPath: CONFIG.DOCUMENT_SOURCES.LOCAL_FILES_PATH,
+      urlsFilePath: CONFIG.DOCUMENT_SOURCES.URLS_FILE_PATH,
+      supportedExtensions: CONFIG.DOCUMENT_SOURCES.SUPPORTED_EXTENSIONS,
+      maxConcurrentLoads: CONFIG.DOCUMENT_SOURCES.BATCH_PROCESSING.MAX_CONCURRENT_LOADS,
+      retryAttempts: CONFIG.DOCUMENT_SOURCES.BATCH_PROCESSING.RETRY_ATTEMPTS,
+      retryDelay: CONFIG.DOCUMENT_SOURCES.BATCH_PROCESSING.RETRY_DELAY
+    });
   }
 
   /**
@@ -114,6 +123,147 @@ export class RAGSystem {
       console.error('❌ Index building failed:', error.message);
       throw error;
     }
+  }
+
+  /**
+   * 다중 소스에서 문서 로드 및 인덱싱
+   * (Load and index documents from multiple sources)
+   */
+  async buildIndexFromSources(sources = {}) {
+    if (!this.embeddings) {
+      throw new Error('RAG system not initialized. Call initialize() first.');
+    }
+
+    try {
+      console.log('📚 Starting multi-source document indexing...');
+      
+      // 1. 다중 소스에서 문서 로딩 (Load documents from multiple sources)
+      const allDocuments = await this.documentManager.loadAllDocuments(sources);
+      
+      if (allDocuments.length === 0) {
+        console.warn('⚠️  No documents loaded from any source');
+        return {
+          documentsLoaded: 0,
+          chunksCreated: 0,
+          vectorStoreSize: 0,
+          loadResults: this.documentManager.getLoadResults()
+        };
+      }
+
+      console.log(`📄 Loaded ${allDocuments.length} document(s) from multiple sources`);
+
+      // 2. 텍스트 분할 (Text splitting)
+      const textSplitter = new RecursiveCharacterTextSplitter({
+        chunkSize: CONFIG.TEXT_SPLITTER.CHUNK_SIZE,
+        chunkOverlap: CONFIG.TEXT_SPLITTER.CHUNK_OVERLAP,
+        separators: CONFIG.TEXT_SPLITTER.SEPARATORS
+      });
+      
+      console.log('✂️  Splitting documents into chunks...');
+      const splitDocs = await textSplitter.splitDocuments(allDocuments);
+      console.log(`📝 Split into ${splitDocs.length} chunks`);
+
+      // 3. 중복 제거 및 메타데이터 보강 (Deduplication and metadata enhancement)
+      const uniqueDocs = this.deduplicateDocuments(splitDocs);
+      console.log(`🔄 After deduplication: ${uniqueDocs.length} unique chunks`);
+
+      // 4. Chroma 벡터 스토어 생성 및 문서 저장 (Create Chroma vector store and save documents)
+      console.log('🔗 Initializing Chroma vector store with multi-source documents...');
+      this.vectorStore = await this.chromaWrapper.createVectorStore(
+        this.embeddings,
+        uniqueDocs
+      );
+      console.log('💾 Documents embedded and stored in Chroma vector store');
+
+      // 5. StateGraph 워크플로우 생성 (Create StateGraph workflows)
+      this._createStateGraph();
+      this._createConversationalStateGraph();
+      this._createToolEnabledStateGraph();
+
+      // 6. 로딩 결과 및 통계 (Loading results and statistics)
+      const loadResults = this.documentManager.getLoadResults();
+      
+      const result = {
+        documentsLoaded: allDocuments.length,
+        chunksCreated: splitDocs.length,
+        uniqueChunks: uniqueDocs.length,
+        vectorStoreSize: uniqueDocs.length,
+        loadResults: loadResults,
+        sources: {
+          localFiles: loadResults.summary.sources?.localFiles || 0,
+          urls: loadResults.summary.sources?.urls || 0,
+          successRate: loadResults.summary.successRate
+        }
+      };
+
+      console.log('\n✅ Multi-source indexing completed successfully!');
+      console.log(`📊 Summary: ${result.documentsLoaded} docs → ${result.uniqueChunks} unique chunks`);
+      
+      return result;
+
+    } catch (error) {
+      console.error('❌ Multi-source index building failed:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * 문서 중복 제거
+   * (Remove duplicate documents)
+   */
+  deduplicateDocuments(documents) {
+    const seen = new Set();
+    const uniqueDocs = [];
+    
+    for (const doc of documents) {
+      // 내용과 소스를 기반으로 해시 생성 (Generate hash based on content and source)
+      const contentHash = this.generateContentHash(doc.pageContent);
+      const uniqueKey = `${contentHash}`;
+      
+      if (!seen.has(uniqueKey)) {
+        seen.add(uniqueKey);
+        uniqueDocs.push(doc);
+      } else {
+        console.log(`🔄 Skipping duplicate content from: ${doc.metadata?.filename || doc.metadata?.source || 'unknown'}`);
+      }
+    }
+    
+    return uniqueDocs;
+  }
+
+  /**
+   * 컨텐츠 해시 생성 (단순 구현)
+   * (Generate content hash - simple implementation)
+   */
+  generateContentHash(content) {
+    // 간단한 해시 함수 (단어 수와 첫 100자의 조합)
+    const wordCount = content.split(/\s+/).length;
+    const prefix = content.substring(0, 100).replace(/\s+/g, '');
+    return `${wordCount}-${prefix.length}-${prefix.charCodeAt(0) || 0}`;
+  }
+
+  /**
+   * 문서 소스 통계 가져오기
+   * (Get document source statistics)
+   */
+  getDocumentSourceStats() {
+    if (!this.documentManager) {
+      return null;
+    }
+    
+    return this.documentManager.getStats();
+  }
+
+  /**
+   * 마지막 로딩 결과 가져오기
+   * (Get last loading results)
+   */
+  getLastLoadResults() {
+    if (!this.documentManager) {
+      return null;
+    }
+    
+    return this.documentManager.getLoadResults();
   }
 
   /**
@@ -839,6 +989,16 @@ Helpful Answer:`;
         registeredTools: this.toolRegistry.getNames(),
         toolCount: this.toolRegistry.getNames().length,
         executionStats: this.toolExecutor.getStats()
+      },
+      documentManagerStatus: {
+        isInitialized: !!this.documentManager,
+        supportedExtensions: this.documentManager?.getSupportedExtensions() || [],
+        lastLoadSummary: this.documentManager?.getLoadResults()?.summary || null,
+        options: {
+          localFilesPath: this.documentManager?.options?.localFilesPath || 'not set',
+          urlsFilePath: this.documentManager?.options?.urlsFilePath || 'not set',
+          maxConcurrentLoads: this.documentManager?.options?.maxConcurrentLoads || 0
+        }
       }
     };
   }

@@ -41,6 +41,7 @@ async function main() {
   const args = process.argv.slice(2);
   const isInteractive = args.includes('--interactive') || args.includes('-i');
   const isStreamingMode = args.includes('--streaming') || args.includes('-s');
+  const isMultiSource = args.includes('--multi-source') || args.includes('-m');
   const isHelp = args.includes('--help') || args.includes('-h');
   
   // 도움말 표시 (Show help)
@@ -66,6 +67,20 @@ async function main() {
     return;
   }
   
+  // 다중 소스 모드 (Multi-source mode)
+  if (isMultiSource) {
+    console.log('📚 Starting multi-source document processing mode...');
+    console.log('💡 Loading from /input folder and URLs');
+    
+    try {
+      await runMultiSourceDemo();
+    } catch (error) {
+      handleError(error, 'multi-source demo');
+      process.exit(1);
+    }
+    return;
+  }
+  
   // 샘플 모드 (Sample mode)
   try {
     // 환경 변수 검증 (Validate environment)
@@ -84,8 +99,8 @@ async function main() {
     console.log(`   - Has Conversational Graph: ${status.hasConversationalGraph}`);
     console.log(`   - Tools Enabled: ${CONFIG.TOOLS.ENABLED}`);
     
-    // 문서 인덱싱 (Build index)
-    console.log('\n📚 Building document index...');
+    // 문서 인덱싱 (Build index) - 기본 단일 URL 사용
+    console.log('\n📚 Building document index (single URL)...');
     const indexInfo = await ragSystem.buildIndex();
     console.log(`   - Documents loaded: ${indexInfo.documentsLoaded}`);
     console.log(`   - Chunks created: ${indexInfo.chunksCreated}`);
@@ -164,6 +179,7 @@ async function main() {
     console.log('\n💡 Usage:');
     console.log('   - Interactive mode: node index.js --interactive');
     console.log('   - Streaming mode: node index.js --streaming');
+    console.log('   - Multi-source mode: node index.js --multi-source');
     console.log('   - Regular mode: node index.js (default)');
     
   } catch (error) {
@@ -193,13 +209,16 @@ Usage:
 Options:
   -i, --interactive    Start interactive chat mode
   -s, --streaming      Enable streaming mode for sample questions
+  -m, --multi-source   Use multi-source document loading (input folder + URLs)
   -h, --help          Show this help message
 
 Examples:
   node index.js                    # Run sample questions (default)
   node index.js --interactive      # Start interactive chat
   node index.js --streaming        # Run sample questions with streaming
+  node index.js --multi-source     # Test multi-source document loading
   node index.js -i                 # Short form for interactive mode
+  node index.js -m                 # Short form for multi-source mode
 
 Environment Variables:
   OPENROUTER_API_KEY              # Required: OpenRouter API key
@@ -211,6 +230,124 @@ Environment Variables:
 
 For more information, see the README.md file.
 `);
+}
+
+/**
+ * 다중 소스 데모 실행 함수
+ * (Run multi-source demo function)
+ */
+async function runMultiSourceDemo() {
+  let ragSystem = null;
+  
+  try {
+    // 환경 변수 검증 (Validate environment)
+    validateEnvironment();
+    
+    // RAG 시스템 초기화 (Initialize RAG system)
+    ragSystem = new RAGSystem();
+    await ragSystem.initialize();
+    
+    console.log('\n📊 System initialized for multi-source processing');
+    
+    // 다중 소스에서 문서 로딩 (Load documents from multiple sources)
+    console.log('\n📚 Loading documents from multiple sources...');
+    console.log('   - Local files from: ./input/documents');
+    console.log('   - URLs from: ./input/urls.txt');
+    
+    const indexResult = await ragSystem.buildIndexFromSources({
+      includeLocalFiles: true,
+      includeUrls: true,
+      localFilesPath: './input/documents',
+      urlsFilePath: './input/urls.txt'
+    });
+
+    // 결과 출력 (Print results)
+    console.log('\n📊 Multi-Source Loading Results:');
+    console.log('=' .repeat(50));
+    console.log(`📄 Total documents loaded: ${indexResult.documentsLoaded}`);
+    console.log(`📝 Total chunks created: ${indexResult.chunksCreated}`);
+    console.log(`🔄 Unique chunks: ${indexResult.uniqueChunks}`);
+    console.log(`📁 Local files: ${indexResult.sources.localFiles}`);
+    console.log(`🌐 URLs: ${indexResult.sources.urls}`);
+    console.log(`✅ Success rate: ${indexResult.sources.successRate}%`);
+
+    // 로딩 상세 결과 (Detailed loading results)
+    const loadResults = ragSystem.getLastLoadResults();
+    if (loadResults && loadResults.summary) {
+      console.log('\n📋 Loading Details:');
+      console.log(`   ✅ Successful loads: ${loadResults.summary.successfulLoads}`);
+      console.log(`   ❌ Failed loads: ${loadResults.summary.failedLoads}`);
+      console.log(`   🕒 Loaded at: ${loadResults.summary.loadedAt}`);
+      
+      if (loadResults.failed.length > 0) {
+        console.log('\n❌ Failed items:');
+        loadResults.failed.forEach(failure => {
+          console.log(`   - ${failure.source}: ${failure.error}`);
+        });
+      }
+    }
+
+    // 다양한 언어의 샘플 질문들 (Multi-language sample questions)
+    const multiSourceQuestions = [
+      '인공지능과 머신러닝의 차이점은 무엇인가요?',
+      'RAG 시스템의 주요 구성 요소는 무엇인가요?',
+      'What are the main challenges in LLM-powered autonomous agents?',
+      '딥러닝에서 사용되는 CNN과 RNN의 차이점을 설명해주세요',
+      'How does task decomposition work in autonomous agents?'
+    ];
+    
+    console.log('\n🎯 Testing Multi-Source Knowledge...');
+    console.log('=' .repeat(50));
+    
+    // 각 질문에 대해 답변 생성 (Generate answers for each question)
+    for (let i = 0; i < multiSourceQuestions.length; i++) {
+      const question = multiSourceQuestions[i];
+      
+      console.log(`\n[${i + 1}/${multiSourceQuestions.length}]`);
+      console.log(`❓ Question: ${question}`);
+      
+      try {
+        const answer = await ragSystem.generateAnswer(question);
+        console.log(`💬 Answer: ${answer}`);
+        
+      } catch (error) {
+        console.error(`❌ Error answering question ${i + 1}:`, error.message);
+        continue;
+      }
+      
+      // 질문 간 간격 (Spacing between questions)
+      if (i < multiSourceQuestions.length - 1) {
+        console.log('\n' + '-'.repeat(30));
+      }
+    }
+    
+    // 문서 소스 통계 (Document source statistics)
+    console.log('\n📈 Document Source Statistics:');
+    console.log('=' .repeat(50));
+    const sourceStats = ragSystem.getDocumentSourceStats();
+    if (sourceStats) {
+      console.log(`📁 Local files path: ${sourceStats.options.localFilesPath}`);
+      console.log(`🌐 URLs file path: ${sourceStats.options.urlsFilePath}`);
+      console.log(`📄 Supported extensions: ${sourceStats.supportedExtensions.join(', ')}`);
+      console.log(`⚙️  Max concurrent loads: ${sourceStats.options.maxConcurrentLoads}`);
+      console.log(`🔄 Retry attempts: ${sourceStats.options.retryAttempts}`);
+    }
+    
+    console.log('\n✅ Multi-source demo completed successfully!');
+    console.log('\n💡 Tips:');
+    console.log('   - Add more documents to ./input/documents/');
+    console.log('   - Add more URLs to ./input/urls.txt');
+    console.log('   - Try interactive mode: node index.js --interactive');
+    
+  } catch (error) {
+    console.error('❌ Multi-source demo failed:', error.message);
+    throw error;
+  } finally {
+    // 정리 작업 (Cleanup)
+    if (ragSystem) {
+      await ragSystem.cleanup();
+    }
+  }
 }
 
 // 스크립트 실행 (Script execution)
