@@ -13,6 +13,7 @@ export class InteractiveChatInterface {
     this.rl = null;
     this.currentThreadId = 'default';
     this.isRunning = false;
+    this.toolsEnabled = CONFIG.TOOLS.ENABLED; // 런타임 도구 토글 상태
     this.welcomeMessage = `
 🤖 RAG 대화형 채팅 시스템에 오신 것을 환영합니다!
 ===============================================
@@ -25,6 +26,7 @@ export class InteractiveChatInterface {
 • /switch <thread_id> - 다른 대화 스레드로 전환
 • /summary - 현재 대화 요약
 • /status - 시스템 상태 확인
+• /tools - 도구 사용 토글 (켜기/끄기)
 • /exit - 채팅 종료
 
 질문을 입력하시면 문서를 검색하여 답변해드립니다.
@@ -159,6 +161,10 @@ export class InteractiveChatInterface {
         await this.showStatus();
         break;
         
+      case '/tools':
+        this.toggleTools();
+        break;
+        
       case '/exit':
         await this.exitChat();
         break;
@@ -182,13 +188,25 @@ export class InteractiveChatInterface {
       let result;
       if (conversationHistory.messages.length === 0) {
         // 첫 번째 질문 - 새로운 대화 시작
-        result = await this.ragSystem.startConversation(question, this.currentThreadId);
+        if (this.toolsEnabled) {
+          result = await this.ragSystem.generateAnswerWithTools(question);
+        } else {
+          result = await this.ragSystem.startConversation(question, this.currentThreadId);
+        }
       } else {
         // 기존 대화 계속
-        result = await this.ragSystem.continueConversation(question, this.currentThreadId);
+        if (this.toolsEnabled) {
+          result = await this.ragSystem.generateAnswerWithTools(question);
+        } else {
+          result = await this.ragSystem.continueConversation(question, this.currentThreadId);
+        }
       }
       
-      console.log(`\n🤖 Assistant: ${result.answer}\n`);
+      console.log(`\n🤖 Assistant: ${result.answer}`);
+      if (this.toolsEnabled && result.usedTools && result.toolResults && result.toolResults.length > 0) {
+        console.log(`🔧 Used ${result.toolResults.length} tool(s) to answer this question`);
+      }
+      console.log('');
       
     } catch (error) {
       handleError(error, 'question processing');
@@ -212,6 +230,7 @@ export class InteractiveChatInterface {
 • /switch <thread_id> - 다른 대화 스레드로 전환
 • /summary - 현재 대화 요약
 • /status - 시스템 상태 확인
+• /tools - 도구 사용 토글 (켜기/끄기)
 • /exit - 채팅 종료
 
 사용법:
@@ -308,6 +327,17 @@ export class InteractiveChatInterface {
   }
 
   /**
+   * 도구 사용 토글
+   * (Toggle tool usage)
+   */
+  toggleTools() {
+    this.toolsEnabled = !this.toolsEnabled;
+    const status = this.toolsEnabled ? '활성화' : '비활성화';
+    const emoji = this.toolsEnabled ? '🔧' : '🔒';
+    console.log(`${emoji} 도구 사용이 ${status}되었습니다.`);
+  }
+
+  /**
    * 대화 요약 표시
    * (Show conversation summary)
    */
@@ -347,6 +377,7 @@ export class InteractiveChatInterface {
       console.log(`✅ 문서 수: ${chromaInfo.count}`);
       console.log(`✅ 현재 대화 스레드: ${this.currentThreadId}`);
       console.log(`✅ 총 대화 수: ${status.chatHistoryStatus.conversationCount}`);
+      console.log(`🔧 도구 사용: ${this.toolsEnabled ? '활성화' : '비활성화'} (설정: ${CONFIG.TOOLS.ENABLED ? '활성화' : '비활성화'})`);
       console.log('='.repeat(50));
     } catch (error) {
       console.error('❌ 시스템 상태 확인 실패:', error.message);

@@ -7,6 +7,8 @@ import { EmbeddingsOpenAI } from './wrappers/embeddings-openai.js';
 import { chromaWrapper } from './wrappers/chroma-wrapper.js';
 import { chatHistoryManager } from './chat-history.js';
 import { CONFIG } from './config.js';
+import { toolRegistry, ToolRegistryUtils } from './tools/tool-registry.js';
+import { toolExecutor } from './tools/tool-executor.js';
 
 /**
  * RAG 시스템 클래스 - StateGraph 사용
@@ -18,8 +20,11 @@ export class RAGSystem {
     this.embeddings = null;
     this.graph = null;
     this.conversationalGraph = null;
+    this.toolEnabledGraph = null;
     this.chromaWrapper = chromaWrapper;
     this.chatHistoryManager = chatHistoryManager;
+    this.toolRegistry = toolRegistry;
+    this.toolExecutor = toolExecutor;
   }
 
   /**
@@ -96,6 +101,9 @@ export class RAGSystem {
       
       // 5. 대화형 StateGraph 생성 (Conversational StateGraph creation)
       this._createConversationalStateGraph();
+      
+      // 6. 도구 지원 StateGraph 생성 (Tool-enabled StateGraph creation)
+      this._createToolEnabledStateGraph();
 
       return {
         documentsLoaded: docs.length,
@@ -271,6 +279,272 @@ Helpful Answer:`;
   }
 
   /**
+   * 도구 지원 StateGraph 워크플로우 생성
+   * (Create tool-enabled StateGraph workflow)
+   */
+  _createToolEnabledStateGraph() {
+    const toolWorkflow = new StateGraph({
+      channels: {
+        question: null,
+        context: null,
+        toolResults: null,
+        needsTools: null,
+        answer: null
+      }
+    });
+
+    // 문서 검색 노드
+    const retrieveNode = async (state) => {
+      console.log(`🔍 Retrieving documents for: ${state.question}`);
+      
+      const docs = await this.vectorStore.similaritySearch(
+        state.question,
+        CONFIG.RETRIEVAL.TOP_K
+      );
+      
+      const context = docs.map(doc => doc.pageContent).join('\n\n');
+      console.log(`📚 Retrieved ${docs.length} relevant documents`);
+      
+      return { context };
+    };
+
+    // 도구 필요성 판단 노드
+    const toolDecisionNode = async (state) => {
+      console.log('🤔 Analyzing if tools are needed...');
+      
+      const prompt = `다음 질문과 컨텍스트를 분석하여 외부 도구가 필요한지 판단하세요.
+
+질문: ${state.question}
+컨텍스트: ${state.context}
+
+사용 가능한 도구:
+${this.toolExecutor.generateToolUsageGuide(state.question)}
+
+도구가 필요한 경우 "NEED_TOOLS"를, 필요하지 않은 경우 "NO_TOOLS"를 반환하세요.
+계산, 현재 날짜/시간 조회, 실시간 정보가 필요한 경우에만 도구를 사용하세요.
+
+판단:`;
+
+      try {
+        const headers = {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${CONFIG.OPENROUTER.API_KEY}`,
+        };
+
+        const requestBody = {
+          model: CONFIG.OPENROUTER.LLM_MODEL,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.1, // 낮은 온도로 일관된 판단
+          max_tokens: 100,
+        };
+
+        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(requestBody),
+        });
+
+        if (!response.ok) {
+          throw new Error(`OpenRouter API Error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const decision = data.choices[0].message.content.trim();
+        const needsTools = decision.includes('NEED_TOOLS');
+        
+        console.log(`🎯 Tool decision: ${needsTools ? 'Tools needed' : 'No tools needed'}`);
+        
+        return { needsTools };
+      } catch (error) {
+        console.error('❌ Tool decision failed:', error.message);
+        return { needsTools: false }; // 기본값: 도구 사용하지 않음
+      }
+    };
+
+    // 도구 실행 노드
+    const toolExecutionNode = async (state) => {
+      console.log('🔧 Executing tools...');
+      
+      const prompt = `다음 질문에 답하기 위해 필요한 도구를 사용하세요.
+
+질문: ${state.question}
+컨텍스트: ${state.context}
+
+${this.toolExecutor.generateToolUsageGuide(state.question)}
+
+도구 호출 형식에 따라 필요한 도구를 호출하세요:`;
+
+      try {
+        const headers = {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${CONFIG.OPENROUTER.API_KEY}`,
+        };
+
+        const requestBody = {
+          model: CONFIG.OPENROUTER.LLM_MODEL,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.3,
+          max_tokens: 500,
+        };
+
+        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(requestBody),
+        });
+
+        if (!response.ok) {
+          throw new Error(`OpenRouter API Error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const toolResponse = data.choices[0].message.content;
+        
+        // 도구 실행
+        const toolExecution = await this.toolExecutor.executeFromText(toolResponse);
+        
+        return { 
+          toolResults: toolExecution.toolResults,
+          processedToolResponse: toolExecution.processedText
+        };
+      } catch (error) {
+        console.error('❌ Tool execution failed:', error.message);
+        return { 
+          toolResults: [],
+          processedToolResponse: null
+        };
+      }
+    };
+
+    // 최종 답변 생성 노드
+    const generateWithToolsNode = async (state) => {
+      console.log('🤖 Generating final answer with tool results...');
+      
+      let prompt = `다음 정보를 바탕으로 사용자의 질문에 답변하세요.
+
+질문: ${state.question}
+문서 컨텍스트: ${state.context}`;
+
+      // 도구 결과가 있는 경우 포함
+      if (state.toolResults && state.toolResults.length > 0) {
+        const toolResultsText = state.toolResults
+          .map(result => `${result.tool}: ${JSON.stringify(result.result)}`)
+          .join('\n');
+        prompt += `\n\n도구 실행 결과:\n${toolResultsText}`;
+      }
+
+      prompt += `\n\n답변 지침:
+1. 도구 실행 결과를 우선적으로 활용하세요
+2. 문서 컨텍스트로 보완 설명하세요
+3. 모르는 것은 모른다고 답하세요
+4. 최대 3문장으로 간결하게 답변하세요
+
+답변:`;
+
+      try {
+        const headers = {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${CONFIG.OPENROUTER.API_KEY}`,
+        };
+
+        const requestBody = {
+          model: CONFIG.OPENROUTER.LLM_MODEL,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: CONFIG.LLM.TEMPERATURE,
+          max_tokens: CONFIG.LLM.MAX_TOKENS,
+        };
+
+        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(requestBody),
+        });
+
+        if (!response.ok) {
+          throw new Error(`OpenRouter API Error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const answer = data.choices[0].message.content;
+        
+        return { answer };
+      } catch (error) {
+        console.error('❌ Answer generation with tools failed:', error.message);
+        throw error;
+      }
+    };
+
+    // 조건부 라우팅 함수
+    const routeAfterDecision = (state) => {
+      return state.needsTools ? "tool_execution" : "generate_no_tools";
+    };
+
+    // 도구 없이 답변 생성 노드 (기존 generate 노드와 동일)
+    const generateWithoutToolsNode = async (state) => {
+      console.log('🤖 Generating answer without tools...');
+      
+      const prompt = `Use the following pieces of context to answer the question at the end.
+If you don't know the answer, just say that you don't know, don't try to make up an answer.
+Use three sentences maximum and keep the answer as concise as possible.
+
+Context: ${state.context}
+
+Question: ${state.question}
+
+Helpful Answer:`;
+
+      const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${CONFIG.OPENROUTER.API_KEY}`,
+      };
+
+      const requestBody = {
+        model: CONFIG.OPENROUTER.LLM_MODEL,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: CONFIG.LLM.TEMPERATURE,
+        max_tokens: CONFIG.LLM.MAX_TOKENS,
+        top_p: CONFIG.LLM.TOP_P,
+      };
+
+      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`OpenRouter API Error (${response.status}): ${errorText}`);
+      }
+
+      const data = await response.json();
+      const answer = data.choices[0].message.content;
+      
+      return { answer };
+    };
+
+    // 노드 추가
+    toolWorkflow.addNode("retrieve", retrieveNode);
+    toolWorkflow.addNode("tool_decision", toolDecisionNode);
+    toolWorkflow.addNode("tool_execution", toolExecutionNode);
+    toolWorkflow.addNode("generate_with_tools", generateWithToolsNode);
+    toolWorkflow.addNode("generate_no_tools", generateWithoutToolsNode);
+
+    // 엣지 추가
+    toolWorkflow.addEdge(START, "retrieve");
+    toolWorkflow.addEdge("retrieve", "tool_decision");
+    toolWorkflow.addConditionalEdges("tool_decision", routeAfterDecision);
+    toolWorkflow.addEdge("tool_execution", "generate_with_tools");
+    toolWorkflow.addEdge("generate_with_tools", END);
+    toolWorkflow.addEdge("generate_no_tools", END);
+
+    // 그래프 컴파일
+    this.toolEnabledGraph = toolWorkflow.compile();
+    
+    console.log('✅ Tool-enabled StateGraph created successfully');
+  }
+
+  /**
    * 질문에 대한 답변 생성 (StateGraph 사용)
    * (Generate answer for question using StateGraph)
    */
@@ -292,6 +566,39 @@ Helpful Answer:`;
       
     } catch (error) {
       console.error('❌ Answer generation failed:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * 도구 지원 답변 생성 (Tool-enabled StateGraph 사용)
+   * (Generate answer with tool support using Tool-enabled StateGraph)
+   */
+  async generateAnswerWithTools(question) {
+    if (!this.toolEnabledGraph) {
+      throw new Error('Tool-enabled StateGraph not initialized. Call buildIndex() first.');
+    }
+
+    try {
+      console.log(`\n❓ Question (with tools): ${question}`);
+      
+      // 내장 도구 등록 (첫 실행 시)
+      await this.initializeBuiltInTools();
+      
+      // Tool-enabled StateGraph 실행
+      const result = await this.toolEnabledGraph.invoke({
+        question: question
+      });
+      
+      console.log(`\n🔧 Answer (with tools): ${result.answer}`);
+      return {
+        answer: result.answer,
+        toolResults: result.toolResults || [],
+        usedTools: result.needsTools || false
+      };
+      
+    } catch (error) {
+      console.error('❌ Tool-enabled answer generation failed:', error.message);
       throw error;
     }
   }
@@ -487,6 +794,30 @@ Helpful Answer:`;
   }
 
   /**
+   * 내장 도구 초기화
+   * (Initialize built-in tools)
+   */
+  async initializeBuiltInTools() {
+    try {
+      // 이미 도구가 등록되어 있으면 스킵
+      if (this.toolRegistry.getNames().length > 0) {
+        return;
+      }
+
+      console.log('🔧 Initializing built-in tools...');
+      
+      // 내장 도구 등록
+      await ToolRegistryUtils.registerBuiltInTools(this.toolRegistry);
+      
+      const toolCount = this.toolRegistry.getNames().length;
+      console.log(`✅ ${toolCount} built-in tools registered`);
+      
+    } catch (error) {
+      console.error('❌ Built-in tools initialization failed:', error.message);
+    }
+  }
+
+  /**
    * 시스템 상태 확인
    * (Check system status)
    */
@@ -496,12 +827,18 @@ Helpful Answer:`;
       hasVectorStore: !!this.vectorStore,
       hasGraph: !!this.graph,
       hasConversationalGraph: !!this.conversationalGraph,
+      hasToolEnabledGraph: !!this.toolEnabledGraph,
       model: CONFIG.OPENROUTER.LLM_MODEL,
       embeddingModel: CONFIG.OPENAI.EMBEDDING_MODEL,
       chromaStatus: this.chromaWrapper.isInitialized(),
       chatHistoryStatus: {
         hasCheckpointer: !!this.chatHistoryManager.checkpointer,
         conversationCount: this.chatHistoryManager.conversationState.size
+      },
+      toolStatus: {
+        registeredTools: this.toolRegistry.getNames(),
+        toolCount: this.toolRegistry.getNames().length,
+        executionStats: this.toolExecutor.getStats()
       }
     };
   }
@@ -534,6 +871,10 @@ Helpful Answer:`;
       // Chat history manager 정리
       await this.chatHistoryManager.cleanup();
       
+      // Tool registry 및 executor 정리
+      await this.toolRegistry.cleanup();
+      await this.toolExecutor.cleanup();
+      
       // Chroma 리소스 정리
       await this.chromaWrapper.cleanup();
       
@@ -542,6 +883,7 @@ Helpful Answer:`;
       this.embeddings = null;
       this.graph = null;
       this.conversationalGraph = null;
+      this.toolEnabledGraph = null;
       
       console.log('✅ RAG system cleanup completed');
     } catch (error) {
