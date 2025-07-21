@@ -208,6 +208,7 @@ Helpful Answer:`
     CATEGORIES: {
       MATH: 'math', // 수학 계산
       UTILITY: 'utility', // 유틸리티 (날짜/시간 등)
+      REMOTE: 'remote', // 원격 서버 접근 (SSH 등)
       SEARCH: 'search', // 검색 (향후 확장)
       API: 'api', // API 호출 (향후 확장)
       GENERAL: 'general' // 일반
@@ -237,6 +238,13 @@ Helpful Answer:`
         maxRetries: 2,
         defaultTimezone: 'Asia/Seoul',
         defaultLocale: 'ko-KR'
+      },
+      SSH: {
+        enabled: true,
+        timeout: 30000,
+        maxRetries: 2,
+        defaultAuthMethod: 'password',
+        maxConcurrentConnections: 5
       }
     },
     
@@ -269,6 +277,286 @@ Helpful Answer:`
       LOG_ERRORS: true, // 오류 로깅
       LOG_PERFORMANCE: true, // 성능 로깅
       LOG_LEVEL: 'info' // 로그 레벨
+    }
+  },
+
+  // SSH 도구 설정 (SSH Tool Configuration)
+  SSH: {
+    // SSH 기능 활성화/비활성화
+    ENABLED: process.env.ENABLE_SSH_TOOL !== 'false',
+    
+    // 연결 설정
+    CONNECTION: {
+      DEFAULT_PORT: 22,
+      TIMEOUT: parseInt(process.env.SSH_TIMEOUT) || 30000, // 30초
+      MAX_CONNECTIONS: parseInt(process.env.SSH_MAX_CONNECTIONS) || 5,
+      KEEP_ALIVE_INTERVAL: parseInt(process.env.SSH_KEEP_ALIVE_INTERVAL) || 30000,
+      CONNECTION_RETRY_ATTEMPTS: parseInt(process.env.SSH_RETRY_ATTEMPTS) || 3,
+      CONNECTION_RETRY_DELAY: parseInt(process.env.SSH_RETRY_DELAY) || 2000
+    },
+    
+    // 기본 서버 설정 (환경 변수에서 로드)
+    DEFAULT_SERVERS: {
+      production: {
+        host: process.env.SSH_PROD_HOST || null,
+        port: parseInt(process.env.SSH_PROD_PORT) || 22,
+        username: process.env.SSH_PROD_USER || null,
+        authMethod: process.env.SSH_PROD_AUTH_METHOD || 'password'
+      },
+      staging: {
+        host: process.env.SSH_STAGING_HOST || null,
+        port: parseInt(process.env.SSH_STAGING_PORT) || 22,
+        username: process.env.SSH_STAGING_USER || null,
+        authMethod: process.env.SSH_STAGING_AUTH_METHOD || 'password'
+      },
+      development: {
+        host: process.env.SSH_DEV_HOST || null,
+        port: parseInt(process.env.SSH_DEV_PORT) || 22,
+        username: process.env.SSH_DEV_USER || null,
+        authMethod: process.env.SSH_DEV_AUTH_METHOD || 'password'
+      }
+    },
+    
+    // 보안 설정
+    SECURITY: {
+      // 허용된 명령어 목록 (기본적으로 안전한 명령어만 허용)
+      ALLOWED_COMMANDS: [
+        'ls', 'pwd', 'whoami', 'id', 'ps', 'top', 'df', 'du', 'free', 'uptime',
+        'cat', 'head', 'tail', 'grep', 'find', 'which', 'echo', 'date',
+        'uname', 'hostname', 'ifconfig', 'ip', 'netstat', 'lsof',
+        'systemctl status', 'service', 'journalctl', 'dmesg'
+      ],
+      
+      // 금지된 명령어 목록 (위험한 명령어)
+      FORBIDDEN_COMMANDS: [
+        'rm', 'rmdir', 'mv', 'cp', 'dd', 'mkfs', 'fdisk', 'parted',
+        'format', 'shutdown', 'reboot', 'halt', 'poweroff', 'init',
+        'kill', 'killall', 'pkill', 'chmod', 'chown', 'chgrp',
+        'passwd', 'su', 'sudo', 'visudo', 'crontab', 'at',
+        'mount', 'umount', 'fsck', 'badblocks', 'shred'
+      ],
+      
+      // 위험한 패턴 (정규식)
+      DANGEROUS_PATTERNS: [
+        /rm\s+.*-rf/, // rm -rf 패턴
+        />\s*\/dev\/.*/, // 디바이스 파일 리다이렉션
+        /\|\s*sh/, // 파이프를 통한 셸 실행
+        /\|\s*bash/, // 파이프를 통한 bash 실행
+        /\$\(.*\)/, // 명령어 치환
+        /`.*`/, // 백틱 명령어 치환
+        /;\s*(rm|shutdown|reboot)/, // 세미콜론 뒤의 위험한 명령어
+        /&&\s*(rm|shutdown|reboot)/, // AND 연산자 뒤의 위험한 명령어
+        /\|\|\s*(rm|shutdown|reboot)/ // OR 연산자 뒤의 위험한 명령어
+      ],
+      
+      // 입력 제한
+      MAX_COMMAND_LENGTH: parseInt(process.env.SSH_MAX_COMMAND_LENGTH) || 500,
+      MAX_ARGUMENTS: parseInt(process.env.SSH_MAX_ARGUMENTS) || 20,
+      
+      // sudo 사용 제한
+      ALLOW_SUDO: process.env.SSH_ALLOW_SUDO === 'true',
+      REQUIRE_SUDO_CONFIRMATION: process.env.SSH_REQUIRE_SUDO_CONFIRMATION !== 'false',
+      
+      // 파일 경로 제한
+      ALLOWED_PATH_PATTERNS: [
+        /^\/tmp\/.*/, // /tmp 디렉토리
+        /^\/var\/log\/.*/, // 로그 디렉토리
+        /^\/home\/.*/, // 홈 디렉토리
+        /^\/opt\/.*/, // 애플리케이션 디렉토리
+        /^\.\/.*/, // 현재 디렉토리
+        /^~\/.*/ // 홈 디렉토리 (틸드)
+      ],
+      
+      FORBIDDEN_PATH_PATTERNS: [
+        /^\/etc\/.*/, // 시스템 설정 디렉토리
+        /^\/boot\/.*/, // 부트 디렉토리
+        /^\/sys\/.*/, // 시스템 디렉토리
+        /^\/proc\/.*/, // 프로세스 디렉토리
+        /^\/dev\/.*/ // 디바이스 디렉토리
+      ]
+    },
+    
+    // 실행 설정
+    EXECUTION: {
+      DEFAULT_TIMEOUT: parseInt(process.env.SSH_EXEC_TIMEOUT) || 30000,
+      MAX_RETRIES: parseInt(process.env.SSH_EXEC_MAX_RETRIES) || 2,
+      BUFFER_SIZE: parseInt(process.env.SSH_BUFFER_SIZE) || 1024 * 64, // 64KB
+      ENCODING: process.env.SSH_ENCODING || 'utf8'
+    },
+    
+    // 파일 전송 설정 (SFTP)
+    SFTP: {
+      ENABLED: process.env.SSH_SFTP_ENABLED !== 'false',
+      MAX_FILE_SIZE: parseInt(process.env.SSH_SFTP_MAX_FILE_SIZE) || 10 * 1024 * 1024, // 10MB
+      ALLOWED_EXTENSIONS: ['.txt', '.log', '.json', '.yml', '.yaml', '.conf', '.cfg'],
+      UPLOAD_PATH: process.env.SSH_SFTP_UPLOAD_PATH || '/tmp/ssh-tool-uploads',
+      DOWNLOAD_PATH: process.env.SSH_SFTP_DOWNLOAD_PATH || './downloads'
+    },
+    
+    // 로깅 설정
+    LOGGING: {
+      LOG_CONNECTIONS: process.env.SSH_LOG_CONNECTIONS !== 'false',
+      LOG_COMMANDS: process.env.SSH_LOG_COMMANDS !== 'false',
+      LOG_ERRORS: process.env.SSH_LOG_ERRORS !== 'false',
+      LOG_PERFORMANCE: process.env.SSH_LOG_PERFORMANCE !== 'false',
+      LOG_LEVEL: process.env.SSH_LOG_LEVEL || 'info',
+      
+      // 보안 로깅 (중요한 이벤트)
+      SECURITY_LOGGING: {
+        LOG_FAILED_AUTH: true,
+        LOG_FORBIDDEN_COMMANDS: true,
+        LOG_PRIVILEGE_ESCALATION: true,
+        LOG_SUSPICIOUS_ACTIVITY: true
+      }
+    },
+    
+    // 세션 관리
+    SESSION: {
+      MAX_IDLE_TIME: parseInt(process.env.SSH_MAX_IDLE_TIME) || 300000, // 5분
+      AUTO_CLEANUP: process.env.SSH_AUTO_CLEANUP !== 'false',
+      CLEANUP_INTERVAL: parseInt(process.env.SSH_CLEANUP_INTERVAL) || 60000, // 1분
+      MAX_SESSIONS_PER_SERVER: parseInt(process.env.SSH_MAX_SESSIONS_PER_SERVER) || 3
+    }
+  },
+
+  // MCP (Model Context Protocol) 설정 (MCP Configuration)
+  MCP: {
+    // MCP 서버 설정 (우리 RAG 시스템이 MCP 서버로 동작)
+    SERVER: {
+      ENABLED: process.env.MCP_SERVER_ENABLED !== 'false',
+      NAME: process.env.MCP_SERVER_NAME || 'rag-langchain-server',
+      VERSION: process.env.MCP_SERVER_VERSION || '1.0.0',
+      DESCRIPTION: process.env.MCP_SERVER_DESCRIPTION || 'RAG system with LangChain and vector search capabilities',
+      
+      // 지원할 전송 방식 (Transport methods)
+      TRANSPORTS: {
+        STDIO: {
+          enabled: process.env.MCP_STDIO_ENABLED !== 'false'
+        },
+        HTTP: {
+          enabled: process.env.MCP_HTTP_ENABLED !== 'false',
+          host: process.env.MCP_HTTP_HOST || 'localhost',
+          port: parseInt(process.env.MCP_HTTP_PORT) || 3333,
+          path: process.env.MCP_HTTP_PATH || '/mcp'
+        }
+      },
+
+      // 노출할 기능들 (Exposed capabilities)
+      CAPABILITIES: {
+        TOOLS: process.env.MCP_EXPOSE_TOOLS !== 'false',
+        RESOURCES: process.env.MCP_EXPOSE_RESOURCES !== 'false', 
+        PROMPTS: process.env.MCP_EXPOSE_PROMPTS !== 'false',
+        LOGGING: process.env.MCP_EXPOSE_LOGGING !== 'false'
+      },
+
+      // 보안 설정 (Security settings)
+      SECURITY: {
+        REQUIRE_AUTH: process.env.MCP_REQUIRE_AUTH === 'true',
+        API_KEY: process.env.MCP_API_KEY || null,
+        ALLOWED_ORIGINS: process.env.MCP_ALLOWED_ORIGINS?.split(',') || ['*'],
+        RATE_LIMIT: {
+          enabled: process.env.MCP_RATE_LIMIT_ENABLED !== 'false',
+          maxRequests: parseInt(process.env.MCP_RATE_LIMIT_MAX) || 100,
+          windowMs: parseInt(process.env.MCP_RATE_LIMIT_WINDOW) || 60000 // 1분
+        }
+      }
+    },
+
+    // MCP 클라이언트 설정 (우리 RAG 시스템이 다른 MCP 서버들에 연결)
+    CLIENT: {
+      ENABLED: process.env.MCP_CLIENT_ENABLED !== 'false',
+      
+      // 연결할 외부 MCP 서버들 (External MCP servers to connect to)
+      SERVERS: [
+        // 파일시스템 MCP 서버
+        {
+          name: 'filesystem',
+          enabled: process.env.MCP_FILESYSTEM_ENABLED !== 'false',
+          transport: 'stdio',
+          command: 'npx',
+          args: ['@modelcontextprotocol/server-filesystem', process.env.MCP_FILESYSTEM_ROOT || './'],
+          description: 'Filesystem access for reading and writing files'
+        },
+        
+        // Brave 검색 MCP 서버  
+        {
+          name: 'brave-search',
+          enabled: process.env.MCP_BRAVE_ENABLED === 'true' && process.env.BRAVE_API_KEY,
+          transport: 'stdio',
+          command: 'brave-search-mcp-server',
+          args: ['--api-key', process.env.BRAVE_API_KEY],
+          description: 'Web search capabilities via Brave Search API'
+        },
+
+        // SQLite MCP 서버
+        {
+          name: 'sqlite',
+          enabled: process.env.MCP_SQLITE_ENABLED === 'true',
+          transport: 'stdio', 
+          command: 'npx',
+          args: ['@modelcontextprotocol/server-sqlite', process.env.MCP_SQLITE_DB_PATH || './data.db'],
+          description: 'SQLite database access and queries'
+        },
+
+        // 커스텀 HTTP MCP 서버 예시
+        {
+          name: 'custom-http-server',
+          enabled: process.env.MCP_CUSTOM_HTTP_ENABLED === 'true',
+          transport: 'http',
+          url: process.env.MCP_CUSTOM_HTTP_URL || 'http://localhost:3001/mcp',
+          description: 'Custom HTTP-based MCP server'
+        }
+      ],
+
+      // 클라이언트 설정 (Client settings)
+      SETTINGS: {
+        AUTO_CONNECT: process.env.MCP_AUTO_CONNECT !== 'false',
+        RECONNECT_ATTEMPTS: parseInt(process.env.MCP_RECONNECT_ATTEMPTS) || 3,
+        RECONNECT_DELAY: parseInt(process.env.MCP_RECONNECT_DELAY) || 5000,
+        TIMEOUT: parseInt(process.env.MCP_CLIENT_TIMEOUT) || 30000,
+        MAX_CONCURRENT_CONNECTIONS: parseInt(process.env.MCP_MAX_CONNECTIONS) || 5
+      },
+
+      // 기능 통합 설정 (Capability integration settings)
+      INTEGRATION: {
+        // 외부 MCP 도구를 로컬 도구 레지스트리에 통합
+        MERGE_TOOLS: process.env.MCP_MERGE_TOOLS !== 'false',
+        // 외부 MCP 리소스를 사용 가능하게 설정
+        ENABLE_RESOURCES: process.env.MCP_ENABLE_RESOURCES !== 'false',
+        // 외부 MCP 프롬프트를 사용 가능하게 설정  
+        ENABLE_PROMPTS: process.env.MCP_ENABLE_PROMPTS !== 'false',
+        // 도구 이름 충돌 시 접두사 추가
+        TOOL_PREFIX_ON_CONFLICT: process.env.MCP_TOOL_PREFIX !== 'false'
+      }
+    },
+
+    // 프로토콜 설정 (Protocol settings)
+    PROTOCOL: {
+      VERSION: '2024-11-05',
+      JSON_RPC_VERSION: '2.0',
+      
+      // 메시지 설정 (Message settings)
+      MESSAGE: {
+        MAX_SIZE: parseInt(process.env.MCP_MAX_MESSAGE_SIZE) || 1024 * 1024, // 1MB
+        TIMEOUT: parseInt(process.env.MCP_MESSAGE_TIMEOUT) || 30000,
+        RETRY_ATTEMPTS: parseInt(process.env.MCP_MESSAGE_RETRIES) || 3
+      },
+
+      // 기능 협상 설정 (Capability negotiation)
+      NEGOTIATION: {
+        TIMEOUT: parseInt(process.env.MCP_NEGOTIATION_TIMEOUT) || 10000,
+        STRICT_MODE: process.env.MCP_STRICT_MODE === 'true'
+      }
+    },
+
+    // 로깅 설정 (Logging settings)
+    LOGGING: {
+      ENABLED: process.env.MCP_LOGGING_ENABLED !== 'false',
+      LEVEL: process.env.MCP_LOG_LEVEL || 'info', // debug, info, warn, error
+      LOG_MESSAGES: process.env.MCP_LOG_MESSAGES !== 'false',
+      LOG_ERRORS: process.env.MCP_LOG_ERRORS !== 'false',
+      LOG_PERFORMANCE: process.env.MCP_LOG_PERFORMANCE !== 'false',
+      LOG_FILE: process.env.MCP_LOG_FILE || null // null = console only
     }
   }
 }; 

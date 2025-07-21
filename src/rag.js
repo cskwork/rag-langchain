@@ -63,6 +63,9 @@ export class RAGSystem {
         // 체크포인터 없이 계속 진행
       }
 
+      // 내장 도구 초기화
+      await this.initializeBuiltInTools();
+
       console.log('✅ RAG system initialized successfully');
       
     } catch (error) {
