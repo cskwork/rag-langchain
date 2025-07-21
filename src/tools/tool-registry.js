@@ -372,7 +372,8 @@ export const ToolRegistryUtils = {
       // 내장 도구 동적 import 및 등록
       const builtInTools = [
         { module: './built-in/calculator.js', category: 'math' },
-        { module: './built-in/datetime.js', category: 'utility' }
+        { module: './built-in/datetime.js', category: 'utility' },
+        { module: './built-in/ssh.js', category: 'remote' }
       ];
 
       for (const { module, category } of builtInTools) {
