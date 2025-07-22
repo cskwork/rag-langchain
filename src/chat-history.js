@@ -1,8 +1,11 @@
 import { MessagesAnnotation } from "@langchain/langgraph";
 import { StateGraph, START, END } from "@langchain/langgraph";
-import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
 import { HumanMessage, AIMessage } from "@langchain/core/messages";
 import { CONFIG } from './config.js';
+
+// SqliteSaver를 동적으로 가져오기 위한 변수.
+// (Variable for dynamically importing SqliteSaver.)
+let SqliteSaver = null;
 
 /**
  * 채팅 히스토리 관리 시스템
@@ -20,20 +23,38 @@ export class ChatHistoryManager {
    * 체크포인터 초기화 (대화 영속성)
    * (Initialize checkpointer for conversation persistence)
    */
-  async initializeCheckpointer(databasePath = null) {
+  async initializeCheckpointer(databasePath = '') {
     try {
       console.log('💾 Initializing conversation checkpointer...');
-      
+
+      // 동적으로 SqliteSaver 로드 시도
+      // (Attempt to dynamically load SqliteSaver)
+      if (!SqliteSaver) {
+        try {
+          const sqliteModule = await import("@langchain/langgraph-checkpoint-sqlite");
+          SqliteSaver = sqliteModule.SqliteSaver;
+        } catch (importError) {
+          throw new Error(`Failed to load @langchain/langgraph-checkpoint-sqlite: ${importError.message}`);
+        }
+      }
+
+      if (!SqliteSaver) {
+        throw new Error('SqliteSaver could not be loaded.');
+      }
+
       // 메모리 또는 파일 기반 SQLite 데이터베이스 선택
+      // (Select memory or file-based SQLite database)
       const connectionString = databasePath || ":memory:";
       this.checkpointer = SqliteSaver.fromConnString(connectionString);
       await this.checkpointer.setup();
-      
+
       console.log(`✅ Checkpointer initialized successfully (${databasePath ? 'file' : 'memory'} based)`);
       return this.checkpointer;
     } catch (error) {
       console.error('❌ Checkpointer initialization failed:', error.message);
-      throw error;
+      console.warn('⚠️ Checkpointer initialization failed, using in-memory storage only:', error.message);
+      this.checkpointer = null; // 명시적으로 null로 설정
+      return null;
     }
   }
 
@@ -97,7 +118,7 @@ ${conversationContext}
 
       const data = await response.json();
       const reformulatedQuestion = data.choices[0].message.content.trim();
-      
+
       console.log(`🔄 Question reformulated: "${reformulatedQuestion}"`);
       return reformulatedQuestion;
     } catch (error) {
@@ -131,9 +152,9 @@ ${conversationContext}
 
       // 검색 결과 컨텍스트 생성
       const context = docs.map(doc => doc.pageContent).join('\n\n');
-      
+
       console.log(`📚 Retrieved ${docs.length} relevant documents`);
-      
+
       return {
         context,
         documents: docs,
@@ -225,10 +246,10 @@ ${context}
    * (Add message to conversation)
    */
   addMessage(state, message, type = 'human') {
-    const newMessage = type === 'human' 
+    const newMessage = type === 'human'
       ? new HumanMessage(message)
       : new AIMessage(message);
-    
+
     return {
       ...state,
       messages: [...state.messages, newMessage]
@@ -286,7 +307,7 @@ ${context}
     try {
       const config = { configurable: { thread_id: threadId } };
       const checkpoint = await this.checkpointer.get(config);
-      
+
       if (checkpoint && checkpoint.values) {
         console.log(`💾 Conversation checkpoint loaded for thread: ${threadId}`);
         return checkpoint.values;
@@ -342,7 +363,7 @@ ${context}
     } catch (error) {
       console.error('❌ Failed to delete conversation checkpoint:', error.message);
     }
-    
+
     // 메모리에서도 삭제
     this.resetConversation(threadId);
   }
@@ -423,16 +444,16 @@ ${conversationText}
   async cleanup() {
     try {
       console.log('🧹 Cleaning up chat history manager...');
-      
+
       if (this.checkpointer) {
         // 체크포인터 정리 (필요시)
         this.checkpointer = null;
       }
-      
+
       this.clearAllConversations();
       this.graph = null;
       this.vectorStore = null;
-      
+
       console.log('✅ Chat history manager cleanup completed');
     } catch (error) {
       console.error('❌ Chat history manager cleanup failed:', error.message);

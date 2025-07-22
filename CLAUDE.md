@@ -17,94 +17,138 @@ pnpm start
 # Start with development hot-reload
 pnpm dev
 
-# Start with memory optimization
-pnpm start:optimized
+# Interactive chat mode with tool support
+pnpm start --interactive
+
+# Streaming responses
+pnpm start --streaming
 ```
 
 ### Environment Setup
 ```bash
 # Setup environment (required before first run)
 cp env.example .env
-# Then edit .env to add your OPENROUTER_API_KEY
+# Then edit .env to add your OPENROUTER_API_KEY and OPENAI_API_KEY
 ```
 
-### Memory Management
-Use the optimized start command for production or when working with large documents:
+### Testing
 ```bash
-# Start with garbage collection and memory limits
-node --expose-gc --max-old-space-size=1024 index.js
+# Test tool system
+node .docs/test-tools.js
+
+# Test direct OpenRouter integration
+node test-openrouter-direct.js
+node test-openrouter-llm.js
 ```
 
 ## Architecture Overview
 
 ### Core Architecture Pattern
-This is a **RAG (Retrieval Augmented Generation) system** built with LangChain and OpenRouter integration. The application follows a **modular, class-based architecture** with clean separation of concerns.
+This is an **advanced RAG (Retrieval Augmented Generation) system** with **MCP (Model Context Protocol) integration**, **advanced tool capabilities**, and **multi-source document management**. The application follows a **modular, class-based architecture** with clean separation of concerns and StateGraph-based conversation flows.
 
 ### Key Architectural Components
 
 1. **RAGSystem Class (src/rag.js)**: Central orchestrator that manages the entire RAG pipeline
-   - Document loading and chunking
-   - Vector store management with in-memory storage
-   - LLM chain creation and execution
-   - Memory monitoring and optimization
-   - Resource cleanup
+   - Multi-source document loading and chunking
+   - Chroma vector database management
+   - StateGraph-based conversation flows (basic, conversational, tool-enabled)
+   - Tool system integration
+   - MCP integration management
+   - Chat history and thread management
 
-2. **OpenRouter Wrappers (src/wrappers/)**:
-   - `chat-openrouter.js`: Custom ChatOpenAI wrapper for OpenRouter LLM integration
-   - `embeddings-openrouter.js`: Custom embeddings wrapper for OpenRouter embedding models
-   - Both include proper error handling, timeouts, and authentication
+2. **MCP Integration System (src/mcp/)**:
+   - `mcp-integration.js`: Main MCP integration manager
+   - `server/mcp-server.js`: MCP server implementation
+   - `client/server-manager.js`: MCP client and server management
+   - `integration/mcp-tool-bridge.js`: Bridge between MCP and tool systems
+   - Protocol implementation with transport layers (HTTP, stdio)
 
-3. **Configuration Management (src/config.js)**:
-   - Centralized configuration with environment variable validation
-   - Memory management thresholds
-   - Network retry policies
+3. **Advanced Tool System (src/tools/)**:
+   - `tool-registry.js`: Centralized tool registration and management
+   - `tool-executor.js`: Tool execution engine with safety and retry mechanisms
+   - `base-tool.js`: Abstract base class for all tools
+   - Built-in tools: Calculator, DateTime, SSH (remote server access)
+   - Extensible architecture for custom tool development
+
+4. **Multi-Source Document Management (src/document-manager.js)**:
+   - Support for local files (.txt, .md) and web URLs
+   - Batch processing with concurrent loading
+   - Retry mechanisms and error handling
+   - Comprehensive loading statistics and progress tracking
+
+5. **Vector Database Integration (src/wrappers/)**:
+   - `chroma-wrapper.js`: Chroma vector database wrapper
+   - `embeddings-openai.js`: OpenAI embeddings integration
+   - Fallback to memory storage for development
+
+6. **Configuration Management (src/config.js)**:
+   - Environment variable validation for OpenRouter and OpenAI
+   - Tool system configuration (security, timeouts, concurrency)
+   - MCP system settings
    - Model settings and prompt templates (Korean/English)
 
-4. **Utility Layer (src/utils/helpers.js)**:
-   - Comprehensive error handling with OpenRouter-specific hints
-   - Memory monitoring and automatic cleanup
-   - Retry logic with exponential backoff
-   - Performance measurement utilities
+7. **Chat System (src/)**:
+   - `chat-history.js`: Conversation persistence with SQLite
+   - `interactive-chat.js`: CLI interface with command support
+   - Thread management and conversation summarization
 
 ### Data Flow
 ```
-Document URL → CheerioWebBaseLoader → Text Splitting → 
-Embedding Generation → MemoryVectorStore → 
-Similarity Search → Context Retrieval → 
-LLM Generation → Formatted Answer
+Multi-Source Input → DocumentManager → Text Splitting → 
+Embedding Generation → Chroma VectorStore → 
+StateGraph Decision → Tool Execution (if needed) → 
+Context Retrieval → LLM Generation → Formatted Answer → 
+Chat History Storage
 ```
 
-### Memory Management Strategy
-The system implements **proactive memory management**:
-- Automatic memory monitoring every 60 seconds
-- Document caching with size limits
-- Vector store optimization when size exceeds thresholds
-- Forced garbage collection with `--expose-gc` flag
-- Automatic cleanup on process termination
+### Advanced System Features
 
-### OpenRouter Integration Details
-- Uses OpenAI-compatible interface through `@langchain/openai`
-- Custom fetch wrapper for timeout handling
-- Default models: `deepseek/deepseek-r1-distill-llama-70b` (LLM), `nomic-ai/nomic-embed-text-v1.5` (embeddings)
-- Comprehensive error handling for authentication, rate limits, and network issues
+#### MCP (Model Context Protocol) Integration
+- **Bidirectional Communication**: Act as both MCP client and server
+- **Tool Bridge**: Seamless integration between MCP protocols and local tool system
+- **Event-Driven Architecture**: Real-time communication and state management
+- **Transport Flexibility**: Support for HTTP and stdio transport layers
+
+#### StateGraph Conversation Flows
+- **Basic RAG**: Simple document Q&A workflow
+- **Conversational**: Context-aware chat with history integration
+- **Tool-Enabled**: Smart tool selection and execution within conversation flow
+- **Dynamic Routing**: Automatic workflow selection based on query complexity
+
+#### SSH Remote Server Access
+- **Secure Connections**: SSH key-based authentication with connection pooling
+- **Command Execution**: Remote command execution with timeout and retry mechanisms
+- **File Transfer**: Upload/download capabilities with progress tracking
+- **Connection Management**: Multiple server profiles and session management
+
+### API Integration Details
+- **OpenRouter LLM**: Uses `google/gemini-2.5-flash-lite-preview-06-17` as default model
+- **OpenAI Embeddings**: Uses `text-embedding-3-small` for document vectorization
+- **Chroma Database**: Production-ready vector storage with fallback to memory
+- **Comprehensive Error Handling**: API-specific error handling with retry logic
 
 ### Extensibility Points
 The codebase is designed for easy expansion:
-- **Vector Store**: Currently uses MemoryVectorStore, easily replaceable with Pinecone, Weaviate, or Chroma
-- **Document Loaders**: Currently uses CheerioWebBaseLoader, can add PDF, text file, or other loaders
-- **Query Processing**: Ready for structured query analysis and chat history integration
-- **UI Interfaces**: Architectural foundation ready for CLI or web interface addition
+- **Tool System**: Modular tool architecture - easily add new tools by extending BaseTool
+- **Document Loaders**: Support for files and URLs, easily expandable to PDFs, databases, etc.
+- **Vector Stores**: Currently uses Chroma with memory fallback, easily replaceable
+- **MCP Integration**: Ready for custom MCP server/client implementations
+- **Transport Layers**: Extensible transport system for different communication protocols
+- **UI Interfaces**: CLI foundation ready for web UI or API server addition
 
 ### Error Handling Philosophy
-- **Graceful degradation**: Individual failures don't crash the entire system
-- **OpenRouter-specific guidance**: Provides specific hints for common API issues
-- **Security**: Automatically sanitizes API keys from error messages
-- **Performance monitoring**: Tracks memory usage and provides optimization hints
+- **Graceful Degradation**: System continues operating when individual components fail
+- **Comprehensive Logging**: Detailed error logging with context preservation
+- **Retry Mechanisms**: Exponential backoff for external API calls
+- **Security**: Automatic API key sanitization and secure credential handling
+- **Recovery Strategies**: Automatic fallbacks for database, embeddings, and tool failures
 
 ### Development Best Practices for This Codebase
-- Always validate environment variables before running
+- Always validate environment variables before running (both OpenRouter and OpenAI keys required)
 - Use the RAGSystem class methods rather than directly instantiating LangChain components
-- Monitor memory usage when processing large documents
 - Follow the existing Korean/English comment pattern
-- Use the retry utilities for external API calls
-- Leverage the configuration system rather than hardcoding values
+- Use the tool registry for adding new tools rather than hardcoding
+- Leverage the configuration system for all settings
+- Use the DocumentManager for multi-source document loading
+- Test MCP integration with the provided test scripts
+- Follow the StateGraph pattern for conversation flow modifications
