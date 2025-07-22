@@ -10,6 +10,7 @@ import { CONFIG } from './config.js';
 import { toolRegistry, ToolRegistryUtils } from './tools/tool-registry.js';
 import { toolExecutor } from './tools/tool-executor.js';
 import { DocumentManager } from './document-manager.js';
+import { MCPIntegrationManager } from './mcp/mcp-integration.js';
 
 /**
  * RAG 시스템 클래스 - StateGraph 사용
@@ -34,6 +35,9 @@ export class RAGSystem {
       retryAttempts: CONFIG.DOCUMENT_SOURCES.BATCH_PROCESSING.RETRY_ATTEMPTS,
       retryDelay: CONFIG.DOCUMENT_SOURCES.BATCH_PROCESSING.RETRY_DELAY
     });
+
+    // MCP 통합 관리자 (MCP Integration Manager)
+    this.mcpIntegration = null;
   }
 
   /**
@@ -65,6 +69,9 @@ export class RAGSystem {
 
       // 내장 도구 초기화
       await this.initializeBuiltInTools();
+
+      // MCP 통합 초기화 (선택사항)
+      await this.initializeMCPIntegration();
 
       console.log('✅ RAG system initialized successfully');
       
@@ -990,6 +997,78 @@ Helpful Answer:`;
   }
 
   /**
+   * MCP 통합 초기화
+   * (Initialize MCP integration)
+   */
+  async initializeMCPIntegration() {
+    try {
+      // MCP가 비활성화된 경우 스킵
+      if (!CONFIG.MCP.SERVER.ENABLED && !CONFIG.MCP.CLIENT.ENABLED) {
+        console.log('📡 MCP integration disabled in configuration');
+        return;
+      }
+
+      console.log('📡 Initializing MCP integration...');
+      
+      // MCP 통합 관리자 생성
+      this.mcpIntegration = new MCPIntegrationManager(this);
+      
+      // MCP 이벤트 핸들러 설정
+      this.setupMCPEventHandlers();
+      
+      // MCP 통합 시작
+      await this.mcpIntegration.start();
+      
+      const status = this.mcpIntegration.getIntegrationStatus();
+      console.log(`✅ MCP integration initialized successfully`);
+      console.log(`   Server: ${status.server.enabled ? (status.server.running ? 'Running' : 'Stopped') : 'Disabled'}`);
+      console.log(`   Client: ${status.client.enabled ? (status.client.running ? 'Running' : 'Stopped') : 'Disabled'}`);
+      console.log(`   Connected servers: ${status.connectedServers.length}`);
+      console.log(`   Available MCP tools: ${status.capabilities.availableTools}`);
+      console.log(`   Available MCP resources: ${status.capabilities.availableResources}`);
+      
+    } catch (error) {
+      console.warn('⚠️ MCP integration initialization failed:', error.message);
+      console.warn('   Continuing without MCP integration...');
+      this.mcpIntegration = null;
+    }
+  }
+
+  /**
+   * MCP 이벤트 핸들러 설정
+   * (Setup MCP event handlers)
+   */
+  setupMCPEventHandlers() {
+    if (!this.mcpIntegration) {
+      return;
+    }
+
+    this.mcpIntegration.on('started', () => {
+      console.log('📡 MCP integration started');
+    });
+
+    this.mcpIntegration.on('externalServerConnected', ({ serverName }) => {
+      console.log(`📡 Connected to external MCP server: ${serverName}`);
+    });
+
+    this.mcpIntegration.on('externalServerDisconnected', ({ serverName }) => {
+      console.log(`📡 Disconnected from external MCP server: ${serverName}`);
+    });
+
+    this.mcpIntegration.on('capabilitiesUpdated', ({ serverName }) => {
+      console.log(`📡 MCP capabilities updated from: ${serverName}`);
+    });
+
+    this.mcpIntegration.on('serverError', (error) => {
+      console.error('📡 MCP server error:', error);
+    });
+
+    this.mcpIntegration.on('externalServerError', ({ serverName, error }) => {
+      console.error(`📡 External MCP server error (${serverName}):`, error);
+    });
+  }
+
+  /**
    * 시스템 상태 확인
    * (Check system status)
    */
@@ -1021,6 +1100,17 @@ Helpful Answer:`;
           urlsFilePath: this.documentManager?.options?.urlsFilePath || 'not set',
           maxConcurrentLoads: this.documentManager?.options?.maxConcurrentLoads || 0
         }
+      },
+      mcpStatus: this.mcpIntegration ? this.mcpIntegration.getIntegrationStatus() : {
+        isRunning: false,
+        server: { enabled: false, running: false },
+        client: { enabled: false, running: false },
+        capabilities: {
+          availableTools: 0,
+          availableResources: 0,
+          availablePrompts: 0
+        },
+        connectedServers: []
       }
     };
   }
@@ -1050,6 +1140,17 @@ Helpful Answer:`;
     try {
       console.log('🧹 Cleaning up RAG system resources...');
       
+      // MCP 통합 정리
+      if (this.mcpIntegration) {
+        try {
+          await this.mcpIntegration.cleanup();
+          this.mcpIntegration = null;
+          console.log('📡 MCP integration cleaned up');
+        } catch (error) {
+          console.warn('⚠️ MCP cleanup warning:', error.message);
+        }
+      }
+      
       // Chat history manager 정리
       await this.chatHistoryManager.cleanup();
       
@@ -1072,6 +1173,142 @@ Helpful Answer:`;
       console.error('❌ RAG system cleanup failed:', error.message);
       throw error;
     }
+  }
+
+  /**
+   * MCP 도구 목록 가져오기
+   * (Get available MCP tools)
+   */
+  getAvailableMCPTools() {
+    if (!this.mcpIntegration) {
+      return [];
+    }
+    return this.mcpIntegration.getAvailableMCPTools();
+  }
+
+  /**
+   * MCP 리소스 목록 가져오기
+   * (Get available MCP resources)
+   */
+  getAvailableMCPResources() {
+    if (!this.mcpIntegration) {
+      return [];
+    }
+    return this.mcpIntegration.getAvailableMCPResources();
+  }
+
+  /**
+   * MCP 프롬프트 목록 가져오기
+   * (Get available MCP prompts)
+   */
+  getAvailableMCPPrompts() {
+    if (!this.mcpIntegration) {
+      return [];
+    }
+    return this.mcpIntegration.getAvailableMCPPrompts();
+  }
+
+  /**
+   * MCP 도구 호출
+   * (Call MCP tool)
+   */
+  async callMCPTool(toolName, args = {}) {
+    if (!this.mcpIntegration) {
+      throw new Error('MCP integration not initialized');
+    }
+    return await this.mcpIntegration.callMCPTool(toolName, args);
+  }
+
+  /**
+   * MCP 리소스 읽기
+   * (Read MCP resource)
+   */
+  async readMCPResource(uri) {
+    if (!this.mcpIntegration) {
+      throw new Error('MCP integration not initialized');
+    }
+    return await this.mcpIntegration.readMCPResource(uri);
+  }
+
+  /**
+   * MCP 프롬프트 가져오기
+   * (Get MCP prompt)
+   */
+  async getMCPPrompt(promptName, args = {}) {
+    if (!this.mcpIntegration) {
+      throw new Error('MCP integration not initialized');
+    }
+    return await this.mcpIntegration.getMCPPrompt(promptName, args);
+  }
+
+  /**
+   * 외부 MCP 서버 추가
+   * (Add external MCP server)
+   */
+  async addExternalMCPServer(serverConfig) {
+    if (!this.mcpIntegration) {
+      throw new Error('MCP integration not initialized');
+    }
+    return await this.mcpIntegration.addExternalServer(serverConfig);
+  }
+
+  /**
+   * 외부 MCP 서버 제거
+   * (Remove external MCP server)
+   */
+  async removeExternalMCPServer(serverName) {
+    if (!this.mcpIntegration) {
+      throw new Error('MCP integration not initialized');
+    }
+    return await this.mcpIntegration.removeExternalServer(serverName);
+  }
+
+  /**
+   * 연결된 MCP 서버 목록 가져오기
+   * (Get connected MCP servers)
+   */
+  getConnectedMCPServers() {
+    if (!this.mcpIntegration) {
+      return [];
+    }
+    return this.mcpIntegration.getConnectedExternalServers();
+  }
+
+  /**
+   * MCP 기능이 포함된 향상된 RAG 쿼리
+   * (Enhanced RAG query with MCP capabilities)
+   */
+  async generateAnswerWithMCP(question, options = {}) {
+    if (!this.mcpIntegration) {
+      // MCP가 없으면 기본 답변 생성으로 폴백
+      return await this.generateAnswer(question);
+    }
+    
+    return await this.mcpIntegration.enhancedRAGQuery(question, options);
+  }
+
+  /**
+   * MCP 통합 상태 확인
+   * (Check MCP integration status)
+   */
+  getMCPIntegrationStatus() {
+    if (!this.mcpIntegration) {
+      return {
+        isAvailable: false,
+        isRunning: false,
+        reason: 'MCP integration not initialized'
+      };
+    }
+    
+    const status = this.mcpIntegration.getIntegrationStatus();
+    return {
+      isAvailable: true,
+      isRunning: status.isRunning,
+      server: status.server,
+      client: status.client,
+      capabilities: status.capabilities,
+      connectedServers: status.connectedServers
+    };
   }
 
   /**

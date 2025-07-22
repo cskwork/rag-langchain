@@ -43,14 +43,18 @@ OPENAI_API_KEY=your_openai_key_here
 # Interactive chat mode (with tool support)
 pnpm start --interactive
 
-# Test tool system
-node .docs/test-tools.js
-
 # Sample questions mode
 pnpm start
 
 # Streaming answers
 pnpm start --streaming
+
+# Test tool system
+node .docs/test-tools.js
+
+# Test OpenRouter integration
+node test-openrouter-direct.js
+node test-openrouter-llm.js
 ```
 
 ## 💬 Usage Examples
@@ -78,6 +82,11 @@ $ pnpm start --interactive
 # Date and time operations  
 💬 You: What day will it be 30 days from now?
 🤖 Assistant: 30 days from now will be August 16, 2025, which is a Saturday.
+
+# SSH remote server access
+💬 You: Check disk usage on production server
+🤖 Assistant: [Connecting to production server via SSH...]
+Available disk space: /dev/sda1 45% used, 123GB available
 
 # Mixed queries with documents and tools
 💬 You: What is an agent and what's 15% of 240?
@@ -115,32 +124,65 @@ Contextual Response (with tool results) → Chat History Storage
 - **BaseTool**: Abstract base class with safety and retry mechanisms
 - **ToolRegistry**: Centralized tool registration and management
 - **ToolExecutor**: Parses LLM output and executes appropriate tools
-- **Built-in Tools**: Calculator and DateTime tools with security validation
+- **Built-in Tools**: Calculator, DateTime, and SSH tools with security validation
+
+**MCP (Model Context Protocol) Integration:**
+- **Bidirectional Communication**: Acts as both MCP client and server
+- **Protocol Bridge**: Seamless integration between MCP and local tool systems
+- **Transport Layers**: Support for HTTP and stdio communication
+- **Event-Driven**: Real-time communication and state management
 
 ## 📁 Project Structure
 
 ```
 rag-langchain/
 ├── src/
+│   ├── mcp/                        # 🔗 MCP System
+│   │   ├── client/                # MCP client components
+│   │   │   ├── mcp-client.js      # MCP client implementation
+│   │   │   └── server-manager.js   # Server management
+│   │   ├── server/                # MCP server components
+│   │   │   └── mcp-server.js      # MCP server implementation
+│   │   ├── core/                  # Core MCP functionality
+│   │   │   ├── capabilities.js    # MCP capabilities
+│   │   │   ├── errors.js          # Error handling
+│   │   │   ├── messages.js        # Message protocols
+│   │   │   └── protocol.js        # Core protocol
+│   │   ├── transports/            # Transport layers
+│   │   │   ├── http.js           # HTTP transport
+│   │   │   └── stdio.js          # Stdio transport
+│   │   ├── integration/           # Integration bridge
+│   │   │   └── mcp-tool-bridge.js # MCP-Tool bridge
+│   │   └── mcp-integration.js     # Main MCP integration
 │   ├── tools/                      # 🔧 Tool System
 │   │   ├── built-in/              # Built-in tools
 │   │   │   ├── calculator.js      # Mathematical calculations
-│   │   │   └── datetime.js        # Date/time operations
+│   │   │   ├── datetime.js        # Date/time operations
+│   │   │   ├── ssh.js             # SSH remote access
+│   │   │   ├── ssh-manager.js     # SSH connection management
+│   │   │   └── ssh-validator.js   # SSH security validation
 │   │   ├── base-tool.js           # Abstract tool base class
 │   │   ├── tool-registry.js       # Tool registration system
 │   │   └── tool-executor.js       # Tool execution engine
 │   ├── wrappers/
 │   │   ├── chroma-wrapper.js       # Chroma database wrapper
 │   │   └── embeddings-openai.js    # OpenAI embeddings wrapper
+│   ├── utils/
+│   │   └── helpers.js             # Utility functions
 │   ├── chat-history.js             # Conversation management
 │   ├── interactive-chat.js         # CLI chat interface
-│   ├── rag.js                      # Main RAG system with tool support
-│   └── config.js                   # Configuration with tool settings
-├── .docs/                          # 📚 Documentation
-│   ├── architecture.md             # System architecture
-│   ├── tool-development.md         # Tool development guide
-│   └── api-reference.md            # API documentation
-├── .docs/test-tools.js             # Tool system testing
+│   ├── document-manager.js         # Multi-source document management
+│   ├── rag.js                      # Main RAG system with StateGraph
+│   └── config.js                   # Configuration with MCP & tool settings
+├── examples/
+│   └── multi-source-example.js    # Multi-source loading example
+├── input/                          # 📁 Input directory
+│   ├── documents/                 # Local documents
+│   │   ├── sample.md             # Sample markdown file
+│   │   └── sample.txt            # Sample text file
+│   └── urls.txt                   # Web URLs to load
+├── test-openrouter-direct.js      # OpenRouter direct testing
+├── test-openrouter-llm.js         # OpenRouter LLM testing
 ├── index.js                        # Entry point
 └── README.md
 ```
@@ -260,7 +302,7 @@ CHROMA_PORT=8000
 ## 🛠️ Models
 
 **Default Models:**
-- **LLM**: `moonshotai/kimi-k2:free` (via OpenRouter)
+- **LLM**: `google/gemini-2.5-flash-lite-preview-06-17` (via OpenRouter)
 - **Embeddings**: `text-embedding-3-small` (via OpenAI)
 
 **Change Models:**
@@ -285,12 +327,20 @@ EMBEDDING_MODEL=text-embedding-3-large
 
 ## 📚 Advanced Features
 
+### 🔗 MCP (Model Context Protocol) Integration
+- **Bidirectional Communication**: Full MCP client and server implementation
+- **Protocol Bridge**: Seamless integration between MCP and local tool systems  
+- **Transport Flexibility**: HTTP and stdio transport layer support
+- **Event-Driven Architecture**: Real-time communication and state management
+- **Tool Bridging**: Automatic translation between MCP tools and local tools
+
 ### 🔧 Tool System
-- **Modular Architecture**: Easy to add new tools
-- **Security First**: Sandboxed execution with input validation
+- **Modular Architecture**: Easy to add new tools by extending BaseTool
+- **Security First**: Sandboxed execution with input validation and timeout
 - **Smart Execution**: Automatic tool selection based on query context
 - **Performance Monitoring**: Execution statistics and error tracking
 - **Retry Mechanisms**: Automatic retry with exponential backoff
+- **SSH Remote Access**: Secure remote server management and file transfer
 
 ### 💬 Conversation Management
 - **Thread Support**: Multiple conversation threads
@@ -311,14 +361,19 @@ EMBEDDING_MODEL=text-embedding-3-large
 
 ## 🎉 Getting Started Tips
 
-1. **Test the tool system** first with `node .docs/test-tools.js`
-2. **Start with interactive mode** to experience the conversational flow
+1. **Test the system components** first:
+   - Tool system: `node .docs/test-tools.js`
+   - OpenRouter integration: `node test-openrouter-direct.js`
+   - LLM functionality: `node test-openrouter-llm.js`
+2. **Start with interactive mode** to experience the conversational flow: `pnpm start --interactive`
 3. **Try tool-enabled queries** like "What time is it and calculate 2+2*3?"
-4. **Use `/tools`** to see available tools and usage statistics
-5. **Try follow-up questions** to see context awareness in action
-6. **Use `/help`** to explore available commands
-7. **Experiment with different document URLs** in the config
-8. **Check conversation history** with `/history` command
+4. **Test SSH tools** (if configured) for remote server access
+5. **Use `/tools`** to see available tools and usage statistics
+6. **Try follow-up questions** to see context awareness in action
+7. **Use `/help`** to explore available commands
+8. **Experiment with multi-source documents** - add files to `input/documents/` or URLs to `input/urls.txt`
+9. **Check conversation history** with `/history` command
+10. **Explore MCP integration** for advanced protocol communication
 
 ## 📖 Documentation
 
@@ -329,12 +384,13 @@ For detailed documentation, see the `.docs/` directory:
 
 ---
 
-**Ready to chat with your documents and use tools? 🚀**
+**Ready to chat with your documents and use advanced tools? 🚀**
 
 ```bash
-# Test the tool system
+# Test the system components
 node .docs/test-tools.js
+node test-openrouter-direct.js
 
-# Start interactive chat with tool support
+# Start interactive chat with full tool and MCP support
 pnpm start --interactive
 ```
