@@ -8,7 +8,7 @@ dotenv.config();
  * (API key validation function)
  */
 const validateOpenRouterApiKey = (apiKey) => {
-  console.log("OpenRouter apiKey", apiKey);
+
   if (!apiKey) {
     throw new Error('OPENROUTER_API_KEY is required');
   }
@@ -21,7 +21,7 @@ const validateOpenRouterApiKey = (apiKey) => {
 };
 
 const validateOpenAIApiKey = (apiKey) => {
-  console.log("OpenAI apiKey", apiKey);
+
   if (!apiKey) {
     throw new Error('OPENAI_API_KEY is required');
   }

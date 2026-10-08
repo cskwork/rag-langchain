@@ -5,7 +5,7 @@ import { CONFIG } from './src/config.js';
 console.log('🧪 Testing OpenRouter Direct API...');
 
 try {
-  console.log('OpenRouter API Key (first 20 chars):', CONFIG.OPENROUTER.API_KEY.substring(0, 20));
+
   console.log('LLM Model:', CONFIG.OPENROUTER.LLM_MODEL);
   
   // Direct OpenRouter API call (same as in rag.js)
